@@ -172,6 +172,57 @@ supabase functions serve
 **Decision**: Use specialized APIs for each AI task rather than a single provider
 **Rationale**: Better quality results, superior developer experience, ability to switch providers
 
+## Campaign Management Architecture
+
+### Overview
+QAlien's campaign management system provides comprehensive tools for creating, tracking, and analyzing marketing campaigns across multiple brands within an organization.
+
+### Key Features
+1. **Campaign Creation**: Multi-field forms with budget tracking and timeline management
+2. **Real-time Updates**: Live campaign list updates using Supabase subscriptions
+3. **Multi-currency Support**: Global campaign management with 10+ currency options
+4. **Secure Operations**: Edge Functions with RLS policies for data isolation
+
+### Technical Implementation
+
+#### Database Schema
+```sql
+campaigns
+├── id (UUID, primary key)
+├── brand_id (UUID, foreign key)
+├── name (text, required)
+├── campaign_type (text)
+├── description (text)
+├── start_date (timestamptz)
+├── end_date (timestamptz)
+├── budget (numeric)
+├── currency (varchar(3))
+├── country (varchar(100))
+└── created_at (timestamptz)
+```
+
+#### Edge Functions
+- **create-campaign**: Handles secure campaign creation with validation
+  - JWT authentication via Clerk
+  - Input validation and sanitization
+  - PostHog event tracking (optional)
+  - CORS support for browser requests
+
+#### Frontend Components
+- **CreateCampaignModal**: QAlien-themed modal with form controls
+- **DatePicker**: Custom calendar component matching dark theme
+- **useCampaigns**: React hook with real-time subscriptions
+- **QAlienModal**: Reusable dark-themed modal component
+
+### Security Model
+```
+User → Clerk JWT → Edge Function → RLS Policies → Database
+```
+
+- Row Level Security ensures users only see campaigns in their organization
+- Edge Functions validate user permissions before operations
+- All data operations respect organization boundaries
+
 ## Conclusion
 
 This architecture provides a solid foundation for a modern, scalable SaaS application with sophisticated AI capabilities. By choosing best-in-class services for each component and following cloud-native principles, we ensure both developer productivity and system reliability.

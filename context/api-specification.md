@@ -65,6 +65,13 @@ User → Organization → Brand → Creatives
 | `/api/creatives/{id}` | GET | `brand_member` | Get creative details |
 | `/api/creatives/{id}/analysis` | GET | `brand_member` | Get AI analysis |
 
+### **Campaign Management (Implemented)**
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/functions/v1/create-campaign` | POST | `authenticated` | Create new campaign |
+| Direct Supabase Query | GET | `authenticated` | List campaigns via RLS |
+| Real-time Subscription | WS | `authenticated` | Live campaign updates |
+
 ### **AI Analysis**
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
@@ -364,6 +371,66 @@ supabase db push
 # Reset database
 supabase db reset
 ```
+
+---
+
+## 📦 **Campaign Management Implementation**
+
+### **Edge Function: create-campaign**
+
+The campaign creation edge function handles secure campaign creation with comprehensive validation and tracking.
+
+#### **Request Format**
+```typescript
+POST /functions/v1/create-campaign
+Authorization: Bearer <clerk_jwt_token>
+
+{
+  "brandId": "uuid",
+  "campaignData": {
+    "name": "Summer 2025 Campaign",
+    "campaign_type": "Social Media",
+    "description": "Summer product launch",
+    "start_date": "2025-06-01",
+    "end_date": "2025-08-31",
+    "budget": 50000,
+    "currency": "USD",
+    "country": "United States"
+  }
+}
+```
+
+#### **Response Format**
+```typescript
+{
+  "data": {
+    "id": "uuid",
+    "brand_id": "uuid",
+    "name": "Summer 2025 Campaign",
+    "campaign_type": "Social Media",
+    "description": "Summer product launch",
+    "start_date": "2025-06-01T00:00:00Z",
+    "end_date": "2025-08-31T00:00:00Z",
+    "budget": 50000,
+    "currency": "USD",
+    "country": "United States",
+    "created_at": "2025-07-11T10:00:00Z"
+  }
+}
+```
+
+#### **Security Features**
+1. **JWT Validation**: Clerk token required
+2. **Brand Access Check**: Verifies user belongs to brand's organization
+3. **Input Validation**: Required fields and data type checks
+4. **RLS Enforcement**: Database-level security
+
+#### **PostHog Integration**
+When configured, tracks `campaign_created` events with:
+- Campaign details (id, name, type)
+- Budget information for revenue tracking
+- Organization and user metadata
+- Timestamp for analytics
 
 ---
 

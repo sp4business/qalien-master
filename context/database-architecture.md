@@ -257,46 +257,75 @@ CREATE INDEX idx_creative_analysis_analyzed_at ON creative_analysis(analyzed_at 
 
 ## 🚀 **Campaign Management**
 
-### **Campaigns Table**
+### **Campaigns Table (Updated 2025-07-11)**
 ```sql
+-- Actual implementation in production
 CREATE TABLE campaigns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
+  brand_id UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
   
-  -- Campaign Details
-  name VARCHAR(255) NOT NULL,
+  -- Core Campaign Details
+  name TEXT NOT NULL,
+  campaign_type TEXT,
   description TEXT,
-  campaign_type VARCHAR(100),
-  status VARCHAR(50) CHECK (status IN ('draft', 'active', 'completed', 'archived')) DEFAULT 'draft',
   
   -- Timeline
-  start_date DATE,
-  end_date DATE,
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
   
-  -- Budget & Performance
-  budget_amount DECIMAL(12,2),
-  budget_currency VARCHAR(3) DEFAULT 'USD',
-  actual_spend DECIMAL(12,2) DEFAULT 0,
-  target_impressions BIGINT,
-  actual_impressions BIGINT DEFAULT 0,
-  
-  -- Targeting
-  target_demographics JSONB DEFAULT '{}',
-  target_locations JSONB DEFAULT '{}',
-  distribution_channels TEXT[],
+  -- Budget (simplified for MVP)
+  budget NUMERIC,
+  currency VARCHAR(3) DEFAULT 'USD',
+  country VARCHAR(100),
   
   -- Metadata
-  created_by UUID REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Indexes
-CREATE INDEX idx_campaigns_org_id ON campaigns(org_id);
+-- Indexes for performance
 CREATE INDEX idx_campaigns_brand_id ON campaigns(brand_id);
-CREATE INDEX idx_campaigns_status ON campaigns(status);
-CREATE INDEX idx_campaigns_start_date ON campaigns(start_date);
+CREATE INDEX idx_campaigns_created_at ON campaigns(created_at DESC);
+
+-- Row Level Security Policies
+ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
+
+-- Users can view campaigns in their organization
+CREATE POLICY "Users can view campaigns in their org" 
+ON campaigns FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM brands 
+    WHERE brands.id = campaigns.brand_id 
+    AND brands.clerk_org_id = public.clerk_org_id()
+  )
+);
+
+-- Users can create campaigns for their organization's brands
+CREATE POLICY "Org members can create campaigns" 
+ON campaigns FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM brands 
+    WHERE brands.id = campaigns.brand_id 
+    AND brands.clerk_org_id = public.clerk_org_id()
+  )
+);
+```
+
+### **Campaign Status Computation**
+Status is computed dynamically based on dates rather than stored:
+- **Draft**: start_date is in the future or null
+- **Active**: current date is between start_date and end_date
+- **Completed**: current date is after end_date
+
+### **Future Campaign Extensions**
+```sql
+-- Planned additions for full campaign tracking
+ALTER TABLE campaigns ADD COLUMN actual_spend DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE campaigns ADD COLUMN roi_percentage DECIMAL(5,2);
+ALTER TABLE campaigns ADD COLUMN target_demographics JSONB DEFAULT '{}';
+ALTER TABLE campaigns ADD COLUMN distribution_channels TEXT[];
+ALTER TABLE campaigns ADD COLUMN created_by_clerk_id VARCHAR(255);
 ```
 
 ---

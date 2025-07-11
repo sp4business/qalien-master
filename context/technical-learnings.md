@@ -1001,4 +1001,174 @@ const { data: usage } = await supabase
 
 ---
 
+## 🚀 **Campaign Management Implementation**
+
+### **Edge Function Development**
+
+#### **CORS Configuration**
+```typescript
+// Shared CORS headers for all edge functions
+export const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
+}
+
+// Handle preflight requests
+if (req.method === 'OPTIONS') {
+  return new Response('ok', { headers: corsHeaders })
+}
+```
+
+#### **Clerk JWT with Supabase Edge Functions**
+```typescript
+// DON'T try to use supabase.auth.getSession() with Clerk JWT
+// ❌ const { data: { session } } = await supabase.auth.getSession()
+
+// DO get token directly from Clerk in frontend
+// ✅ const token = await getToken({ template: 'supabase' })
+
+// Pass token to edge function
+const response = await fetch(`${SUPABASE_URL}/functions/v1/create-campaign`, {
+  headers: {
+    'Authorization': `Bearer ${token}`,
+  }
+})
+```
+
+### **Real-time Subscriptions Pattern**
+
+```typescript
+// Set up real-time subscription for campaigns
+useEffect(() => {
+  const channel = supabase
+    .channel(`campaigns-${brandId}`)
+    .on(
+      'postgres_changes',
+      { 
+        event: '*', 
+        schema: 'public', 
+        table: 'campaigns',
+        filter: `brand_id=eq.${brandId}`
+      },
+      (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setCampaigns(prev => [payload.new as Campaign, ...prev])
+        }
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [brandId, supabase])
+```
+
+### **Custom Date Picker Implementation**
+
+Building a custom date picker that matches your dark theme:
+```typescript
+// Key features for QAlien-style date picker
+1. Click outside detection with useRef
+2. Month navigation with proper date handling
+3. Today button for quick selection
+4. Dark theme colors matching QAlien design
+5. Proper date formatting for form submission
+```
+
+### **Multi-Currency Budget Handling**
+
+```typescript
+// Dynamic currency symbol display
+const selectedCurrency = CURRENCIES.find(c => c.code === formData.currency)
+
+// Input with currency symbol
+<div className="relative">
+  <span className="absolute left-3 top-1/2 transform -translate-y-1/2">
+    {selectedCurrency?.symbol}
+  </span>
+  <input type="number" className="pl-8" />
+</div>
+```
+
+### **Edge Function Deployment**
+
+```bash
+# Link to remote project
+supabase link --project-ref your-project-ref
+
+# Deploy database migrations
+supabase db push
+
+# Deploy edge function
+supabase functions deploy create-campaign
+
+# Set secrets (if using PostHog)
+supabase secrets set POSTHOG_API_KEY=your_key
+```
+
+### **Common Issues & Solutions**
+
+#### **Issue: CORS Preflight 404**
+- **Cause**: Edge function not deployed
+- **Solution**: Deploy with `supabase functions deploy function-name`
+
+#### **Issue: Supabase Client with accessToken**
+- **Error**: "Supabase Client is configured with the accessToken option"
+- **Solution**: Use Clerk's `getToken()` directly instead of `supabase.auth.getSession()`
+
+#### **Issue: Real-time Updates Not Working**
+- **Check**: Ensure RLS policies allow SELECT on the table
+- **Check**: Verify the filter matches exactly (e.g., `brand_id=eq.${brandId}`)
+- **Check**: Channel name must be unique
+
+### **UI/UX Patterns**
+
+#### **QAlien Dark Theme Colors**
+```css
+/* Background layers */
+--bg-primary: #1A1F2E    /* Modal/Page background */
+--bg-secondary: #2A3142  /* Input/Card background */
+--bg-hover: #323B4F      /* Hover states */
+
+/* Borders */
+--border-primary: #4B5563   /* gray-600 */
+--border-secondary: #374151 /* gray-700 */
+
+/* Text */
+--text-primary: white
+--text-secondary: #D1D5DB   /* gray-300 */
+--text-muted: #9CA3AF       /* gray-400 */
+```
+
+#### **Form Validation Pattern**
+```typescript
+// Clear errors on input change
+const handleInputChange = (e) => {
+  const { name, value } = e.target
+  setFormData(prev => ({ ...prev, [name]: value }))
+  
+  // Clear specific error when user types
+  if (errors[name]) {
+    setErrors(prev => ({ ...prev, [name]: undefined }))
+  }
+}
+```
+
+### **Production Deployment Checklist**
+
+1. ✅ Database migrations deployed
+2. ✅ Edge functions deployed
+3. ✅ CORS headers configured
+4. ✅ Environment variables set
+5. ✅ RLS policies tested
+6. ✅ Real-time subscriptions verified
+7. ✅ Error handling implemented
+8. ✅ Loading states added
+9. ✅ Form validation complete
+10. ✅ Toast notifications working
+
+---
+
 This modern stack provides significant improvements in developer experience, performance, and cost-effectiveness while maintaining all the sophisticated brand compliance features of the original system.

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import QAlienModal from '@/components/QAlienModal';
 import DatePicker from '@/components/ui/DatePicker';
 import { useSupabaseClient } from '@/lib/supabase';
-import { useToast } from '@/hooks/useToast';
+import { useToast } from '@/components/ui/ToastContainer';
 import { useAuth } from '@clerk/nextjs';
 
 interface CreateCampaignModalProps {

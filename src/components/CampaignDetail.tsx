@@ -2,21 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { fetchAuthSession } from '../lib/auth-stubs';
+import { useSupabaseClient } from '@/lib/supabase';
+import { useAuth } from '@clerk/nextjs';
+import { Campaign } from '@/types/campaign';
 import CreativeCard from './CreativeCard';
 import CreativeDetailModal from './CreativeDetailModal';
-import CampaignModal from './CampaignModal';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
-
-interface Campaign {
-  campaign_id: string;
-  campaign_name: string;
-  campaign_type: string;
-  status: string;
-  creative_count: number;
-  approved_creative_count: number;
-  compliance_rate: number;
-}
+import DeleteConfirmationModal from './DeleteConfirmationModal';
+import { useToast } from '@/components/ui/ToastContainer';
 
 interface Creative {
   creative_id: string;
@@ -38,7 +31,7 @@ interface Creative {
   };
 }
 
-// Mock data for demo
+// Mock data for demo (will be replaced with real data later)
 const mockCreatives: Creative[] = [
   {
     creative_id: 'summer-hero-banner',
@@ -82,68 +75,389 @@ interface CampaignDetailProps {
 
 export default function CampaignDetail({ campaignId, brandId }: CampaignDetailProps) {
   const router = useRouter();
-  console.log('CampaignDetail - campaignId:', campaignId, 'brandId:', brandId);
+  const supabase = useSupabaseClient();
+  const { getToken } = useAuth();
+  const { toast } = useToast();
   
-  const [campaign] = useState<Campaign>({
-    campaign_id: campaignId,
-    campaign_name: 'Summer Gelatin Campaign 2024',
-    campaign_type: 'Product Launch',
-    status: 'active',
-    creative_count: 1,
-    approved_creative_count: 1,
-    compliance_rate: 92
-  });
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [creatives, setCreatives] = useState<Creative[]>(mockCreatives);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [creativeToDelete, setCreativeToDelete] = useState<Creative | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Function to fetch assets
+  const fetchAssets = async () => {
+    const { data: assetsData, error: assetsError } = await supabase
+      .from('campaign_assets')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .order('created_at', { ascending: false });
+
+    if (assetsError) {
+      console.error('Error fetching assets:', assetsError);
+    } else if (assetsData && assetsData.length > 0) {
+      // Convert assets to creative format (temporary until AI analysis is implemented)
+      const loadedCreatives: Creative[] = assetsData.map(asset => {
+        const isProcessing = asset.status === 'pending';
+        const { data: { publicUrl } } = supabase.storage
+          .from('campaign-assets')
+          .getPublicUrl(asset.storage_path);
+        console.log('Asset thumbnail URL:', publicUrl, 'Storage path:', asset.storage_path);
+        return {
+          creative_id: asset.id,
+          name: asset.asset_name || 'Untitled Asset',
+          compliance_score: asset.compliance_score || 0,
+          status: asset.status === 'approved' ? 'Approved' : 
+                 asset.status === 'warning' ? 'Warning' : 
+                 asset.status === 'failed' ? 'Failed' : 'Approved',
+          upload_date: new Date(asset.created_at).toLocaleDateString(),
+          mime_type: asset.mime_type || 'image/jpeg',
+          thumbnail_url: publicUrl,
+          analysis: {
+            executive_summary: isProcessing ? 'Processing...' : 'Analysis complete',
+            details: {
+              logo_usage: { score: 0, notes: isProcessing ? 'Processing...' : 'Analysis complete' },
+              color_palette: { score: 0, notes: isProcessing ? 'Processing...' : 'Analysis complete' },
+              typography: { score: 0, notes: isProcessing ? 'Processing...' : 'Analysis complete' },
+              messaging_tone: { score: 0, notes: isProcessing ? 'Processing...' : 'Analysis complete' },
+              layout_composition: { score: 0, notes: isProcessing ? 'Processing...' : 'Analysis complete' }
+            }
+          }
+        };
+      });
+      setCreatives(loadedCreatives);
+    } else {
+      // No assets found, clear the mock data
+      setCreatives([]);
+    }
+  };
+
+  // Fetch campaign data and assets
+  useEffect(() => {
+    const fetchCampaignData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Fetch campaign
+        const { data: campaignData, error: campaignError } = await supabase
+          .from('campaigns')
+          .select('*')
+          .eq('id', campaignId)
+          .single();
+
+        if (campaignError) {
+          throw campaignError;
+        }
+
+        if (!campaignData) {
+          throw new Error('Campaign not found');
+        }
+
+        setCampaign(campaignData);
+
+        // Fetch campaign assets
+        await fetchAssets();
+      } catch (err) {
+        console.error('Error fetching campaign data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load campaign');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (campaignId) {
+      fetchCampaignData();
+    }
+  }, [campaignId, supabase]);
+
+  // Set up real-time subscription for campaign assets
+  useEffect(() => {
+    if (!campaignId) return;
+
+    console.log('Setting up real-time subscription for campaign:', campaignId);
+
+    const channel = supabase
+      .channel(`campaign-assets-${campaignId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'campaign_assets',
+          filter: `campaign_id=eq.${campaignId}`
+        },
+        async (payload) => {
+          console.log('Asset change detected:', {
+            eventType: payload.eventType,
+            old: payload.old,
+            new: payload.new,
+            campaignId
+          });
+          
+          // Handle different event types
+          if (payload.eventType === 'DELETE') {
+            // For delete, remove from state immediately for better UX
+            console.log('Removing asset from UI:', payload.old?.id);
+            setCreatives(prev => {
+              const filtered = prev.filter(c => c.creative_id !== payload.old?.id);
+              console.log('Previous count:', prev.length, 'New count:', filtered.length);
+              return filtered;
+            });
+          } else {
+            // For INSERT and UPDATE, refresh the full list
+            await fetchAssets();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+
+    return () => {
+      console.log('Removing subscription channel');
+      supabase.removeChannel(channel);
+    };
+  }, [campaignId, supabase]);
 
   const handleCreativeClick = (creative: Creative) => {
     setSelectedCreative(creative);
     setIsModalOpen(true);
   };
 
-  const handleUploadMedia = async () => {
-    // In a real implementation, this would open a file picker and upload
-    // For now, we'll just add a mock creative
-    const newCreative: Creative = {
-      creative_id: `creative-${Date.now()}`,
-      name: 'New Summer Asset',
-      compliance_score: 85,
-      status: 'Warning',
-      upload_date: new Date().toLocaleDateString(),
-      mime_type: 'video/mp4',
-      analysis: {
-        executive_summary: 'This asset shows good brand alignment but requires some adjustments to meet full compliance standards.',
-        details: {
-          logo_usage: { 
-            score: 88, 
-            notes: 'Logo placement is correct but size should be increased by 10% for better visibility.'
-          },
-          color_palette: { 
-            score: 82, 
-            notes: 'Most colors align with brand palette. Consider adjusting the accent color for better consistency.'
-          },
-          typography: { 
-            score: 79, 
-            notes: 'Secondary font does not match brand guidelines. Please use the approved font family.'
-          },
-          messaging_tone: { 
-            score: 90, 
-            notes: 'Tone is on-brand and engaging. Message clearly communicates the value proposition.'
-          },
-          layout_composition: { 
-            score: 86, 
-            notes: 'Good visual balance. Consider adding more breathing room around the CTA button.'
-          }
-        }
+  const handleDeleteClick = (creativeId: string) => {
+    const creative = creatives.find(c => c.creative_id === creativeId);
+    if (creative) {
+      setCreativeToDelete(creative);
+      setDeleteModalOpen(true);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!creativeToDelete) return;
+
+    setIsDeleting(true);
+    
+    try {
+      // Get auth token
+      const token = await getToken({ template: 'supabase' });
+      if (!token) throw new Error('No auth token');
+
+      // Call delete edge function
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/delete-campaign-asset`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          assetId: creativeToDelete.creative_id
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete asset');
       }
-    };
-    
-    setCreatives([...creatives, newCreative]);
-    
-    // Show a success message
-    alert('Creative uploaded successfully! (This is a mock upload for demo purposes)');
+
+      // Close modal and show success message
+      setDeleteModalOpen(false);
+      toast({
+        title: 'Asset deleted',
+        description: `"${creativeToDelete.name}" has been permanently deleted.`,
+        variant: 'success'
+      });
+      
+      // Manually remove from state for immediate UI update
+      setCreatives(prev => prev.filter(c => c.creative_id !== creativeToDelete.creative_id));
+      
+      // Also fetch fresh data to ensure consistency
+      setTimeout(() => {
+        fetchAssets();
+      }, 500);
+      
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Failed to delete asset',
+        variant: 'error'
+      });
+    } finally {
+      setIsDeleting(false);
+      setCreativeToDelete(null);
+    }
+  };
+
+  const handleUploadMedia = async () => {
+    try {
+      // Create a hidden file input
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*,video/*,application/pdf';
+      fileInput.multiple = true;
+
+      fileInput.onchange = async (event) => {
+        const files = (event.target as HTMLInputElement).files;
+        if (!files || files.length === 0) return;
+
+        setIsUploading(true);
+        
+        const newCreatives: Creative[] = [];
+        let successCount = 0;
+        let errorCount = 0;
+
+        try {
+          // Get auth token once for all uploads
+          const token = await getToken({ template: 'supabase' });
+          if (!token) throw new Error('No auth token');
+
+          // Process all files
+          for (const file of Array.from(files)) {
+            try {
+              // Step 1: Get upload URL from edge function
+              const uploadUrlResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/get-asset-upload-url`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  campaignId,
+                  fileName: file.name
+                })
+              });
+
+              if (!uploadUrlResponse.ok) {
+                const error = await uploadUrlResponse.json();
+                throw new Error(error.error || 'Failed to get upload URL');
+              }
+
+              const { uploadUrl, storagePath } = await uploadUrlResponse.json();
+              console.log('Got upload URL for file:', file.name, 'Storage path:', storagePath);
+
+              // Step 2: Upload file to storage
+              const uploadResponse = await fetch(uploadUrl, {
+                method: 'PUT',
+                body: file,
+                headers: {
+                  'Content-Type': file.type
+                }
+              });
+
+              if (!uploadResponse.ok) {
+                throw new Error('Failed to upload file');
+              }
+
+              // Step 3: Link asset to campaign
+              const linkResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/link-campaign-asset`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  campaignId,
+                  storagePath,
+                  assetName: file.name,
+                  mimeType: file.type
+                })
+              });
+
+              if (!linkResponse.ok) {
+                const error = await linkResponse.json();
+                throw new Error(error.error || 'Failed to link asset');
+              }
+
+              const { asset } = await linkResponse.json();
+              
+              // Get the public URL using Supabase client
+              const { data: { publicUrl } } = supabase.storage
+                .from('campaign-assets')
+                .getPublicUrl(storagePath);
+
+              // Add to creatives list with processing status
+              const newCreative: Creative = {
+                creative_id: asset.id,
+                name: asset.asset_name,
+                compliance_score: 0, // Will be updated by AI
+                status: 'Approved', // This will be used for compliance status later
+                upload_date: new Date().toLocaleDateString(),
+                mime_type: file.type,
+                thumbnail_url: publicUrl,
+                analysis: {
+                  executive_summary: 'Processing...',
+                  details: {
+                    logo_usage: { score: 0, notes: 'Processing...' },
+                    color_palette: { score: 0, notes: 'Processing...' },
+                    typography: { score: 0, notes: 'Processing...' },
+                    messaging_tone: { score: 0, notes: 'Processing...' },
+                    layout_composition: { score: 0, notes: 'Processing...' }
+                  }
+                }
+              };
+
+              newCreatives.push(newCreative);
+              successCount++;
+
+            } catch (error) {
+              console.error(`Error uploading ${file.name}:`, error);
+              errorCount++;
+            }
+          }
+
+          // The real-time subscription will automatically refresh the list
+          // No need to manually update state here
+
+          // Show appropriate toast message
+          if (successCount > 0 && errorCount === 0) {
+            toast({
+              title: 'Upload complete',
+              description: `Successfully uploaded ${successCount} ${successCount === 1 ? 'asset' : 'assets'}.`,
+              variant: 'success'
+            });
+          } else if (successCount > 0 && errorCount > 0) {
+            toast({
+              title: 'Partial upload complete',
+              description: `Uploaded ${successCount} of ${files.length} assets. ${errorCount} failed.`,
+              variant: 'warning'
+            });
+          } else {
+            toast({
+              title: 'Upload failed',
+              description: 'Failed to upload any assets.',
+              variant: 'error'
+            });
+          }
+
+        } catch (error) {
+          console.error('Upload error:', error);
+          toast({
+            title: 'Upload failed',
+            description: error instanceof Error ? error.message : 'Failed to upload assets',
+            variant: 'error'
+          });
+        } finally {
+          setIsUploading(false);
+        }
+      };
+
+      // Trigger file selection
+      fileInput.click();
+
+    } catch (error) {
+      console.error('Error in upload handler:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to start upload',
+        variant: 'error'
+      });
+    }
   };
 
   if (isLoading) {
@@ -157,6 +471,46 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     );
   }
 
+  if (error || !campaign) {
+    return (
+      <div className="bg-[#1A1F2E] text-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <h2 className="text-2xl font-semibold mb-2">Campaign not found</h2>
+          <p className="text-gray-400 mb-6">{error || 'The campaign you are looking for does not exist.'}</p>
+          <button
+            onClick={() => {
+              if (brandId) {
+                router.push(`/brand/${brandId}`);
+              } else {
+                router.push('/');
+              }
+            }}
+            className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate campaign status based on dates
+  const now = new Date();
+  const startDate = campaign.start_date ? new Date(campaign.start_date) : null;
+  const endDate = campaign.end_date ? new Date(campaign.end_date) : null;
+  
+  let status: 'draft' | 'active' | 'completed' = 'draft';
+  if (startDate && endDate) {
+    if (now < startDate) status = 'draft';
+    else if (now > endDate) status = 'completed';
+    else status = 'active';
+  } else if (startDate && now >= startDate) {
+    status = 'active';
+  }
+
   const averageCompliance = creatives.length > 0 
     ? Math.round(creatives.reduce((acc, c) => acc + c.compliance_score, 0) / creatives.length)
     : 0;
@@ -167,12 +521,9 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
       <div className="px-8 py-6">
         <button 
           onClick={() => {
-            console.log('Back button clicked - brandId:', brandId);
-            // Navigate back to the brand's campaigns page if we have the brandId
             if (brandId) {
               router.push(`/brand/${brandId}`);
             } else {
-              // Fallback to browser back or home
               if (window.history.length > 1) {
                 router.back();
               } else {
@@ -200,23 +551,54 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
                 </svg>
               </div>
               <div>
-                <h1 className="text-3xl font-semibold mb-2">{campaign.campaign_name}</h1>
-                <p className="text-gray-400 mb-4">{campaign.campaign_type}</p>
+                <h1 className="text-3xl font-semibold mb-2">{campaign.name}</h1>
+                <p className="text-gray-400 mb-4">{campaign.campaign_type || 'Campaign'}</p>
                 <div className="flex items-center gap-6 text-sm">
-                  <span className="text-gray-400">Status: <span className="text-green-400">{campaign.status}</span></span>
+                  <span className="text-gray-400">
+                    Status: 
+                    <span className={`ml-2 ${
+                      status === 'active' ? 'text-green-400' : 
+                      status === 'completed' ? 'text-blue-400' : 
+                      'text-yellow-400'
+                    }`}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </span>
+                  </span>
                   <span className="text-gray-400">Assets: <span className="text-white">{creatives.length}</span></span>
-                  <span className="text-gray-400">Compliance: <span className="text-green-400">{campaign.compliance_rate}%</span></span>
+                  <span className="text-gray-400">
+                    Compliance: 
+                    <span className={`ml-2 ${
+                      averageCompliance >= 90 ? 'text-green-400' :
+                      averageCompliance >= 70 ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>
+                      {averageCompliance}%
+                    </span>
+                  </span>
                 </div>
               </div>
             </div>
             <button
               onClick={handleUploadMedia}
-              className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl transition-colors font-medium"
+              disabled={isUploading}
+              className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed rounded-xl transition-colors font-medium"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              Upload Assets
+              {isUploading ? (
+                <>
+                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  Upload Assets
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -227,7 +609,49 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
         <div className="bg-[#2A3142] rounded-2xl p-6">
           <h2 className="text-xl font-semibold mb-4">Campaign Brief</h2>
           <div className="bg-[#1A1F2E] rounded-xl p-4">
-            <p className="text-gray-300">Focus on refreshing summer treats and family gatherings</p>
+            <p className="text-gray-300">
+              {campaign.description || 'No description provided for this campaign.'}
+            </p>
+          </div>
+          
+          {/* Additional Campaign Details */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            {campaign.budget && (
+              <div className="bg-[#1A1F2E] rounded-xl p-4">
+                <p className="text-gray-400 text-sm mb-1">Budget</p>
+                <p className="text-white font-medium">
+                  {new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: campaign.currency || 'USD'
+                  }).format(campaign.budget)}
+                </p>
+              </div>
+            )}
+            
+            {campaign.start_date && (
+              <div className="bg-[#1A1F2E] rounded-xl p-4">
+                <p className="text-gray-400 text-sm mb-1">Start Date</p>
+                <p className="text-white font-medium">
+                  {new Date(campaign.start_date).toLocaleDateString()}
+                </p>
+              </div>
+            )}
+            
+            {campaign.end_date && (
+              <div className="bg-[#1A1F2E] rounded-xl p-4">
+                <p className="text-gray-400 text-sm mb-1">End Date</p>
+                <p className="text-white font-medium">
+                  {new Date(campaign.end_date).toLocaleDateString()}
+                </p>
+              </div>
+            )}
+            
+            {campaign.country && (
+              <div className="bg-[#1A1F2E] rounded-xl p-4">
+                <p className="text-gray-400 text-sm mb-1">Country</p>
+                <p className="text-white font-medium">{campaign.country}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -244,9 +668,10 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
             <p className="text-gray-400 mb-4">No assets uploaded yet</p>
             <button
               onClick={handleUploadMedia}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+              disabled={isUploading}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              Upload Your First Asset
+              {isUploading ? 'Uploading...' : 'Upload Your First Asset'}
             </button>
           </div>
         ) : (
@@ -256,6 +681,7 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
                 key={creative.creative_id}
                 creative={creative}
                 onClick={() => handleCreativeClick(creative)}
+                onDelete={handleDeleteClick}
               />
             ))}
           </div>
@@ -268,6 +694,20 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
           creative={selectedCreative}
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {creativeToDelete && (
+        <DeleteConfirmationModal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            setDeleteModalOpen(false);
+            setCreativeToDelete(null);
+          }}
+          onConfirm={handleDeleteConfirm}
+          assetName={creativeToDelete.name}
+          isDeleting={isDeleting}
         />
       )}
     </div>
