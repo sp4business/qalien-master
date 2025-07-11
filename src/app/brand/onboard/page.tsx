@@ -1,5 +1,5 @@
-import BrandOnboardingWizard from "../../../components/BrandOnboardingWizard";
+import ModernBrandOnboarding from "../../../components/ModernBrandOnboarding";
 
 export default function BrandOnboardPage() {
-  return <BrandOnboardingWizard />;
+  return <ModernBrandOnboarding />;
 }

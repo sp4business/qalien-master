@@ -8,6 +8,7 @@ export interface Brand {
   name: string
   description: string | null
   industry: string | null
+  website: string | null
   status: 'active' | 'archived'
   logo_files: string[]
   color_palette: string[]
@@ -16,6 +17,7 @@ export interface Brand {
   banned_terms: string[]
   required_disclaimers: string[]
   safe_zone_config: any
+  guidelines_pdf_url: string | null
   created_by_clerk_id: string
   created_at: string
   updated_at: string
@@ -30,15 +32,30 @@ export function useBrands() {
     queryFn: async () => {
       if (!organization) return []
       
-      const { data, error } = await supabase
-        .from('brands')
-        .select('*')
-        .order('created_at', { ascending: false })
-      
-      if (error) throw error
-      return data as Brand[]
+      try {
+        console.log('Fetching brands for org:', organization.id)
+        
+        const { data, error } = await supabase
+          .from('brands')
+          .select('*')
+          .eq('clerk_org_id', organization.id)
+          .order('created_at', { ascending: false })
+        
+        if (error) {
+          console.error('Error fetching brands:', error.message)
+          return []
+        }
+        
+        console.log('Successfully fetched', data?.length || 0, 'brands')
+        return (data as Brand[]) || []
+      } catch (err) {
+        console.error('useBrands error:', err)
+        return []
+      }
     },
     enabled: !!organization,
+    staleTime: 30000, // Cache for 30 seconds
+    retry: false, // Don't retry on error
   })
 }
 
@@ -53,20 +70,38 @@ export function useCreateBrand() {
       name: string
       description?: string
       industry?: string
+      website?: string
+      logo_files?: string[]
+      color_palette?: string[]
+      tone_keywords?: string[]
+      approved_terms?: string[]
+      banned_terms?: string[]
+      required_disclaimers?: string[]
+      safe_zone_config?: any
+      guidelines_pdf_url?: string | null
     }) => {
       if (!organization || !user) throw new Error('No organization or user')
       
+      const insertData = {
+        ...brandData,
+        clerk_org_id: organization.id,
+        created_by_clerk_id: user.id,
+      }
+      
+      console.log('Inserting brand data:', insertData)
+      
       const { data, error } = await supabase
         .from('brands')
-        .insert({
-          ...brandData,
-          clerk_org_id: organization.id,
-          created_by_clerk_id: user.id,
-        })
+        .insert(insertData)
         .select()
         .single()
       
-      if (error) throw error
+      if (error) {
+        console.error('Supabase insert error:', error)
+        throw error
+      }
+      
+      console.log('Brand created successfully:', data)
       return data
     },
     onSuccess: () => {

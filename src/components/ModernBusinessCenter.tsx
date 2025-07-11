@@ -13,10 +13,10 @@ export default function ModernBusinessCenter() {
   const orgIdFromUrl = searchParams.get('org');
   
   // Clerk hooks - fetch user's organizations
-  const { userMemberships, isLoaded: orgsLoaded } = useOrganizationList({
+  const { userMemberships, isLoaded: orgsLoaded, setActive } = useOrganizationList({
     userMemberships: true,
   });
-  const { organization, isLoaded: currentOrgLoaded, setActive } = useOrganization();
+  const { organization, isLoaded: currentOrgLoaded } = useOrganization();
   
   // Supabase hooks
   const { data: brands = [], isLoading: brandsLoading } = useBrands();
@@ -33,24 +33,32 @@ export default function ModernBusinessCenter() {
 
   // Switch organization when URL changes
   useEffect(() => {
-    if (orgIdFromUrl && orgsLoaded && userMemberships?.data) {
+    if (orgIdFromUrl && orgsLoaded && userMemberships?.data && setActive) {
       const targetMembership = userMemberships.data.find(mem => mem.organization.id === orgIdFromUrl);
       if (targetMembership && targetMembership.organization.id !== organization?.id) {
-        setActive({ organization: targetMembership.organization.id });
+        console.log('Switching to organization:', targetMembership.organization.id);
+        setActive({ organization: targetMembership.organization.id }).catch(err => {
+          console.error('Error switching organization:', err);
+        });
       }
     }
   }, [orgIdFromUrl, orgsLoaded, userMemberships, organization, setActive]);
 
   // Debug logging
   useEffect(() => {
-    console.log('ModernBusinessCenter Debug:', {
-      orgsLoaded,
-      userMembershipsCount: userMemberships?.data?.length,
-      userMemberships: userMemberships?.data,
-      currentOrg: organization,
-      orgIdFromUrl
-    });
-  }, [orgsLoaded, userMemberships, organization, orgIdFromUrl]);
+    try {
+      console.log('ModernBusinessCenter Debug:', {
+        orgsLoaded,
+        userMembershipsCount: userMemberships?.data?.length,
+        currentOrg: organization,
+        orgIdFromUrl,
+        brandsCount: brands.length,
+        setActiveExists: !!setActive
+      });
+    } catch (error) {
+      console.error('Debug logging error:', error);
+    }
+  }, [orgsLoaded, userMemberships, organization, orgIdFromUrl, brands]);
 
   const handleOrganizationClick = (membership: any) => {
     router.push(`/?org=${membership.organization.id}`);
@@ -90,7 +98,8 @@ export default function ModernBusinessCenter() {
 
   const handleAddBrand = () => {
     if (orgIdFromUrl && organization) {
-      setShowCreateForm(true);
+      // Navigate to the brand onboarding wizard
+      router.push(`/brand/onboard?org=${orgIdFromUrl}`);
     } else {
       alert("Please select an organization first.");
     }
@@ -100,6 +109,13 @@ export default function ModernBusinessCenter() {
     e.preventDefault();
     
     try {
+      console.log('Creating brand with data:', {
+        name: newBrandName,
+        description: newBrandDescription,
+        industry: newBrandIndustry,
+        orgId: organization?.id
+      });
+      
       await createBrand.mutateAsync({
         name: newBrandName,
         description: newBrandDescription || undefined,
@@ -324,7 +340,7 @@ export default function ModernBusinessCenter() {
                         {brand.name}
                         {isArchived && <span className="text-sm text-red-400 ml-2">(Archived)</span>}
                       </h3>
-                      <p className="text-gray-400 mb-2">{organization.name}</p>
+                      <p className="text-gray-400 mb-2">{organization?.name || ''}</p>
                       <p className="text-gray-500 text-sm">{brand.description || brand.industry}</p>
                     </div>
                   );
