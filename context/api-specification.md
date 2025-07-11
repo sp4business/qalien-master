@@ -68,7 +68,10 @@ User → Organization → Brand → Creatives
 ### **AI Analysis**
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/ai/analyze` | POST | `brand_admin` | Trigger AI analysis |
+| `/api/ai/analyze/image` | POST | `brand_admin` | Analyze image with OpenAI Vision |
+| `/api/ai/analyze/video` | POST | `brand_admin` | Analyze video with Twelve Labs |
+| `/api/ai/analyze/audio` | POST | `brand_admin` | Transcribe & analyze with AssemblyAI |
+| `/api/ai/analyze/compliance` | POST | `brand_admin` | Generate compliance report with Bedrock |
 | `/api/ai/status/{id}` | GET | `brand_member` | Check analysis status |
 
 ---

@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import CampaignModal from './CampaignModal';
+import CreateCampaignModal from './campaigns/CreateCampaignModal';
 import TeamManagementModal from './TeamManagementModal';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
 import { useSupabaseClient } from '@/lib/supabase';
+import { useCampaigns } from '@/hooks/useCampaigns';
+import { Campaign as CampaignType } from '@/types/campaign';
 
 interface Brand {
   id: string;
@@ -15,20 +17,8 @@ interface Brand {
   clerk_org_id: string;
 }
 
-interface Campaign {
-  campaign_id: string;
-  campaign_name: string;
-  campaign_type: string;
-  status: string;
-  start_date?: string;
-  end_date?: string;
-  budget_amount: number;
-  budget_currency: string;
-  creative_count: number;
-  approved_creative_count: number;
-  roi_percentage: number;
-  created_ts: string;
-}
+// Using the Campaign type from @/types/campaign
+// Legacy campaign interface removed
 
 interface BrandDetailProps {
   brandId: string;
@@ -38,7 +28,7 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
   const router = useRouter();
   const supabase = useSupabaseClient();
   const [brand, setBrand] = useState<Brand | null>(null);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const { campaigns, isLoading: campaignsLoading, refetch: refetchCampaigns } = useCampaigns(brandId);
   const [isLoading, setIsLoading] = useState(true);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [teamModalOpen, setTeamModalOpen] = useState(false);
@@ -65,9 +55,6 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
 
       setBrand(brandData);
       
-      // For now, set empty campaigns since we haven't implemented campaigns in Supabase yet
-      setCampaigns([]);
-      
     } catch (error: any) {
       console.error('Error fetching brand data:', error);
       // Set fallback data on error
@@ -78,25 +65,23 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
         description: 'A test brand for development',
         clerk_org_id: 'org_test'
       });
-      
-      setCampaigns([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCampaignClick = (campaign: Campaign) => {
-    if (!campaign.campaign_id) {
+  const handleCampaignClick = (campaign: CampaignType) => {
+    if (!campaign.id) {
       console.error('Campaign ID is missing');
       return;
     }
     // Pass the brand ID as a query parameter so the campaign page knows how to navigate back
-    console.log('BrandDetail - navigating to campaign:', campaign.campaign_id, 'with brandId:', brandId);
-    router.push(`/campaign/${campaign.campaign_id}?brandId=${brandId}`);
+    console.log('BrandDetail - navigating to campaign:', campaign.id, 'with brandId:', brandId);
+    router.push(`/campaign/${campaign.id}?brandId=${brandId}`);
   };
 
   const handleCampaignCreated = async () => {
-    await fetchBrandAndCampaigns();
+    await refetchCampaigns();
   };
 
   const getCampaignColor = (index: number) => {
@@ -126,7 +111,7 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
     );
   };
 
-  if (isLoading) {
+  if (isLoading || campaignsLoading) {
     return (
       <QAlienLoadingScreen
         isVisible={isLoading}
@@ -190,72 +175,82 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
 
           {/* Campaigns Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {campaigns.map((campaign, index) => (
-              <div
-                key={campaign.campaign_id}
-                onClick={() => handleCampaignClick(campaign)}
-                className="bg-[#2A3142] hover:bg-[#323B4F] rounded-2xl p-8 cursor-pointer transition-all hover:scale-[1.02] border border-gray-700"
-              >
-                <div className="flex items-start justify-between mb-6">
-                  <div className={`w-20 h-20 ${getCampaignColor(index)} rounded-2xl flex items-center justify-center`}>
-                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    {getStatusBadge(campaign.status)}
-                    <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </div>
-                
-                <h3 className="text-2xl font-semibold mb-2">{campaign.campaign_name}</h3>
-                <p className="text-gray-400 mb-4">{campaign.campaign_type}</p>
-                
-                {/* Campaign Metrics */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Budget</span>
-                    <span className="text-white font-medium">
-                      {new Intl.NumberFormat('en-US', {
-                        style: 'currency',
-                        currency: campaign.budget_currency
-                      }).format(campaign.budget_amount)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">ROI</span>
-                    <span className={`font-medium ${
-                      campaign.roi_percentage > 0 ? 'text-green-400' : 
-                      campaign.roi_percentage < 0 ? 'text-red-400' : 
-                      'text-white'
-                    }`}>
-                      {campaign.roi_percentage > 0 && '+'}{campaign.roi_percentage.toFixed(1)}%
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Creatives</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-400">{campaign.approved_creative_count}</span>
-                      <span className="text-gray-500">/</span>
-                      <span className="text-white">{campaign.creative_count}</span>
+            {campaigns.map((campaign, index) => {
+              // Determine campaign status based on dates
+              const now = new Date();
+              const startDate = campaign.start_date ? new Date(campaign.start_date) : null;
+              const endDate = campaign.end_date ? new Date(campaign.end_date) : null;
+              
+              let status: 'draft' | 'active' | 'completed' = 'draft';
+              if (startDate && endDate) {
+                if (now < startDate) status = 'draft';
+                else if (now > endDate) status = 'completed';
+                else status = 'active';
+              } else if (startDate && now >= startDate) {
+                status = 'active';
+              }
+              
+              return (
+                <div
+                  key={campaign.id}
+                  onClick={() => handleCampaignClick(campaign)}
+                  className="bg-[#2A3142] hover:bg-[#323B4F] rounded-2xl p-8 cursor-pointer transition-all hover:scale-[1.02] border border-gray-700"
+                >
+                  <div className="flex items-start justify-between mb-6">
+                    <div className={`w-20 h-20 ${getCampaignColor(index)} rounded-2xl flex items-center justify-center`}>
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      {getStatusBadge(status)}
+                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
                     </div>
                   </div>
-                </div>
-                
-                {campaign.start_date && (
-                  <div className="mt-4 pt-4 border-t border-gray-700">
-                    <p className="text-sm text-gray-500">
-                      {new Date(campaign.start_date).toLocaleDateString()} - 
-                      {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : 'Ongoing'}
-                    </p>
+                  
+                  <h3 className="text-2xl font-semibold mb-2">{campaign.name}</h3>
+                  <p className="text-gray-400 mb-4">{campaign.campaign_type || 'General Campaign'}</p>
+                  
+                  {/* Campaign Metrics */}
+                  <div className="space-y-3">
+                    {campaign.budget && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">Budget</span>
+                        <span className="text-white font-medium">
+                          {new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: 'USD'
+                          }).format(campaign.budget)}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {campaign.description && (
+                      <div className="flex justify-between items-start">
+                        <span className="text-gray-500">Description</span>
+                        <span className="text-white text-sm text-right max-w-[200px]">
+                          {campaign.description.length > 50 
+                            ? campaign.description.substring(0, 50) + '...' 
+                            : campaign.description
+                          }
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                  
+                  {campaign.start_date && (
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <p className="text-sm text-gray-500">
+                        {new Date(campaign.start_date).toLocaleDateString()} - 
+                        {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : 'Ongoing'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Empty State - QAlien Style */}
@@ -286,15 +281,12 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
       </div>
 
       {/* Campaign Modal */}
-      {brand && (
-        <CampaignModal
-          isOpen={campaignModalOpen}
-          onClose={() => setCampaignModalOpen(false)}
-          brandId={brandId}
-          brandName={brand.brand_name}
-          onSuccess={handleCampaignCreated}
-        />
-      )}
+      <CreateCampaignModal
+        isOpen={campaignModalOpen}
+        onClose={() => setCampaignModalOpen(false)}
+        brandId={brandId}
+        onSuccess={handleCampaignCreated}
+      />
 
       {/* Team Management Modal */}
       {brand && (

@@ -511,6 +511,268 @@ import Image from 'next/image'
 
 ---
 
+## 🤖 **AI Services Integration**
+
+### **Best-of-Breed AI Architecture**
+
+QAlien uses a composable AI services architecture, selecting the best API for each specific task:
+
+#### **1. Core LLM - AWS Bedrock (Claude)**
+```typescript
+// Strategic choice for existing AWS credits & state-of-the-art reasoning
+const bedrock = new BedrockRuntime({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: Deno.env.get('AWS_ACCESS_KEY_ID')!,
+    secretAccessKey: Deno.env.get('AWS_SECRET_ACCESS_KEY')!
+  }
+})
+
+const response = await bedrock.invokeModel({
+  modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+  body: JSON.stringify({
+    messages: [
+      {
+        role: 'user',
+        content: 'Analyze this creative for brand compliance...'
+      }
+    ],
+    max_tokens: 2000
+  })
+})
+```
+
+#### **2. Image Analysis - OpenAI Vision API**
+```typescript
+// Flexible natural language queries for creative understanding
+import OpenAI from 'openai'
+
+const openai = new OpenAI({
+  apiKey: Deno.env.get('OPENAI_API_KEY')!
+})
+
+const response = await openai.chat.completions.create({
+  model: 'gpt-4-vision-preview',
+  messages: [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Check if this creative follows brand guidelines for logo placement, colors, and typography'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: creativeUrl
+          }
+        }
+      ]
+    }
+  ],
+  max_tokens: 1000
+})
+```
+
+#### **3. Video Understanding - Twelve Labs**
+```typescript
+// Best-in-class video analysis with modern API
+const response = await fetch('https://api.twelvelabs.io/v1/tasks', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${Deno.env.get('TWELVE_LABS_API_KEY')}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    index_id: brandVideoIndex,
+    video_url: videoUrl,
+    tasks: ['visual', 'conversation', 'logo_detection', 'text_in_video']
+  })
+})
+
+// Query the indexed video
+const searchResponse = await fetch('https://api.twelvelabs.io/v1/search', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${Deno.env.get('TWELVE_LABS_API_KEY')}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    index_id: brandVideoIndex,
+    query: 'Find instances of brand logo and check if they follow placement guidelines',
+    search_options: ['visual', 'conversation']
+  })
+})
+```
+
+#### **4. Speech-to-Text - AssemblyAI**
+```typescript
+// Superior accuracy and developer experience
+import { AssemblyAI } from 'assemblyai'
+
+const client = new AssemblyAI({
+  apiKey: Deno.env.get('ASSEMBLYAI_API_KEY')!
+})
+
+// Transcribe audio/video
+const transcript = await client.transcripts.create({
+  audio_url: audioUrl,
+  speaker_labels: true,
+  auto_highlights: true,
+  iab_categories: true,
+  sentiment_analysis: true,
+  entity_detection: true
+})
+
+// Get pronunciation assessment
+const pronunciationData = await client.lemur.task({
+  transcript_ids: [transcript.id],
+  prompt: 'Analyze the pronunciation of brand names and key terms. List any mispronunciations.'
+})
+```
+
+#### **5. Pronunciation Analysis - Combined Approach**
+```typescript
+// Two-part approach: AssemblyAI transcription + Bedrock reasoning
+async function analyzePronunciation(audioUrl: string, expectedTerms: string[]) {
+  // Step 1: Get accurate transcription with timestamps
+  const transcript = await assemblyai.transcripts.create({
+    audio_url: audioUrl,
+    word_boost: expectedTerms, // Boost recognition of brand terms
+    boost_param: 'high'
+  })
+  
+  // Step 2: Use Bedrock to analyze pronunciation
+  const analysis = await bedrock.invokeModel({
+    modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    body: JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: `Analyze this transcription for pronunciation accuracy.
+            Expected terms: ${expectedTerms.join(', ')}
+            Transcription: ${transcript.text}
+            Words with timestamps: ${JSON.stringify(transcript.words)}
+            
+            Identify any mispronunciations or unclear pronunciations.`
+        }
+      ]
+    })
+  })
+  
+  return analysis
+}
+```
+
+### **Edge Function Pattern for AI Services**
+```typescript
+// Unified AI analysis edge function
+export default async function analyzeCreative(req: Request) {
+  const { creativeUrl, mediaType, brandId } = await req.json()
+  
+  // Get brand guidelines for comparison
+  const { data: brand } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('id', brandId)
+    .single()
+  
+  let analysisResult
+  
+  switch (mediaType) {
+    case 'image':
+      // Use OpenAI Vision for flexible image analysis
+      analysisResult = await analyzeImageWithOpenAI(creativeUrl, brand)
+      break
+      
+    case 'video':
+      // Use Twelve Labs for comprehensive video understanding
+      analysisResult = await analyzeVideoWithTwelveLabs(creativeUrl, brand)
+      break
+      
+    case 'audio':
+      // Use AssemblyAI for transcription and analysis
+      analysisResult = await analyzeAudioWithAssemblyAI(creativeUrl, brand)
+      break
+  }
+  
+  // Use Bedrock for final compliance scoring and recommendations
+  const complianceAnalysis = await generateComplianceReport(
+    analysisResult,
+    brand,
+    bedrock
+  )
+  
+  // Store results
+  await supabase
+    .from('creative_analysis')
+    .insert({
+      creative_id: creativeId,
+      analysis_type: mediaType,
+      raw_analysis: analysisResult,
+      compliance_report: complianceAnalysis,
+      overall_score: complianceAnalysis.score,
+      status: 'completed'
+    })
+  
+  return Response.json(complianceAnalysis)
+}
+```
+
+### **Benefits of Best-of-Breed Approach**
+
+1. **Superior Quality**: Each service is the best in its domain
+2. **Developer Experience**: Modern APIs with excellent SDKs
+3. **Flexibility**: Easy to swap providers as better options emerge
+4. **Cost Optimization**: Only pay for what you use
+5. **No Vendor Lock-in**: Avoid single-provider dependency
+
+### **Integration Best Practices**
+
+1. **Error Handling**: Each service has different error patterns
+```typescript
+try {
+  const result = await openai.chat.completions.create(...)
+} catch (error) {
+  if (error.status === 429) {
+    // Rate limit - implement exponential backoff
+  } else if (error.status === 400) {
+    // Invalid request - check parameters
+  }
+  // Log to monitoring service
+  console.error('OpenAI API error:', error)
+}
+```
+
+2. **Timeout Management**: Different services have different response times
+```typescript
+const controller = new AbortController()
+const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s for video
+
+try {
+  const result = await fetch(apiUrl, { signal: controller.signal })
+  clearTimeout(timeoutId)
+} catch (error) {
+  if (error.name === 'AbortError') {
+    // Handle timeout
+  }
+}
+```
+
+3. **Cost Tracking**: Monitor usage across services
+```typescript
+// Track API usage for cost management
+await supabase.from('api_usage').insert({
+  service: 'openai_vision',
+  tokens_used: response.usage.total_tokens,
+  cost_usd: calculateCost(response.usage),
+  brand_id: brandId,
+  creative_id: creativeId
+})
+```
+
+---
+
 ## 🔄 **Migration Learnings**
 
 ### **Data Migration Strategy**

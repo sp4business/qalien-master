@@ -127,6 +127,22 @@ CREATE TABLE brands (
   UNIQUE(org_id, slug)
 );
 
+-- Golden Set Creatives Table
+CREATE TABLE golden_set_creatives (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  creative_type TEXT NOT NULL CHECK (creative_type IN ('UGC', 'Produced')),
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_golden_set_creatives_brand_id ON golden_set_creatives(brand_id);
+
 -- Indexes
 CREATE INDEX idx_brands_org_id ON brands(org_id);
 CREATE INDEX idx_brands_slug ON brands(slug);
