@@ -40,52 +40,14 @@ export function useSupabaseClient() {
 export type Database = {
   public: {
     Tables: {
-      organizations: {
-        Row: {
-          id: string
-          clerk_org_id: string
-          name: string
-          slug: string
-          industry: string | null
-          asset_quota_gb: number
-          billing_email: string | null
-          created_by: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          clerk_org_id: string
-          name: string
-          slug: string
-          industry?: string | null
-          asset_quota_gb?: number
-          billing_email?: string | null
-          created_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          clerk_org_id?: string
-          name?: string
-          slug?: string
-          industry?: string | null
-          asset_quota_gb?: number
-          billing_email?: string | null
-          created_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-      }
       brands: {
         Row: {
           id: string
-          org_id: string
+          clerk_org_id: string
           name: string
           description: string | null
           industry: string | null
-          status: string
+          status: 'active' | 'archived'
           logo_files: string[]
           color_palette: string[]
           tone_keywords: string[]
@@ -93,17 +55,17 @@ export type Database = {
           banned_terms: string[]
           required_disclaimers: string[]
           safe_zone_config: any
-          created_by: string | null
+          created_by_clerk_id: string
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          org_id: string
+          clerk_org_id: string
           name: string
           description?: string | null
           industry?: string | null
-          status?: string
+          status?: 'active' | 'archived'
           logo_files?: string[]
           color_palette?: string[]
           tone_keywords?: string[]
@@ -111,17 +73,17 @@ export type Database = {
           banned_terms?: string[]
           required_disclaimers?: string[]
           safe_zone_config?: any
-          created_by?: string | null
+          created_by_clerk_id: string
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          org_id?: string
+          clerk_org_id?: string
           name?: string
           description?: string | null
           industry?: string | null
-          status?: string
+          status?: 'active' | 'archived'
           logo_files?: string[]
           color_palette?: string[]
           tone_keywords?: string[]
@@ -129,84 +91,7 @@ export type Database = {
           banned_terms?: string[]
           required_disclaimers?: string[]
           safe_zone_config?: any
-          created_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-      }
-      creatives: {
-        Row: {
-          id: string
-          org_id: string
-          brand_id: string
-          campaign_id: string | null
-          filename: string
-          file_url: string
-          file_size: number | null
-          mime_type: string | null
-          duration_seconds: number | null
-          width: number | null
-          height: number | null
-          aspect_ratio: number | null
-          creative_type: string
-          ugc_score: number
-          status: string
-          analysis_results: any | null
-          overall_status: string | null
-          compliance_score: number | null
-          uploaded_by: string | null
-          uploaded_at: string
-          analyzed_at: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          org_id: string
-          brand_id: string
-          campaign_id?: string | null
-          filename: string
-          file_url: string
-          file_size?: number | null
-          mime_type?: string | null
-          duration_seconds?: number | null
-          width?: number | null
-          height?: number | null
-          aspect_ratio?: number | null
-          creative_type?: string
-          ugc_score?: number
-          status?: string
-          analysis_results?: any | null
-          overall_status?: string | null
-          compliance_score?: number | null
-          uploaded_by?: string | null
-          uploaded_at?: string
-          analyzed_at?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          org_id?: string
-          brand_id?: string
-          campaign_id?: string | null
-          filename?: string
-          file_url?: string
-          file_size?: number | null
-          mime_type?: string | null
-          duration_seconds?: number | null
-          width?: number | null
-          height?: number | null
-          aspect_ratio?: number | null
-          creative_type?: string
-          ugc_score?: number
-          status?: string
-          analysis_results?: any | null
-          overall_status?: string | null
-          compliance_score?: number | null
-          uploaded_by?: string | null
-          uploaded_at?: string
-          analyzed_at?: string | null
+          created_by_clerk_id?: string
           created_at?: string
           updated_at?: string
         }
