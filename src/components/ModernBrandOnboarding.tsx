@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useOrganization, useUser } from '@clerk/nextjs';
 import { useCreateBrand } from '@/hooks/useBrands';
-import { useSupabaseClient } from '@/lib/supabase';
+import { useSupabaseClient, supabase as supabaseAnon } from '@/lib/supabase';
 
 // Keep the same enum structure from original
 enum OnboardingStep {
@@ -37,6 +37,13 @@ interface FileUpload {
   preview?: string;
 }
 
+interface GoldenSetItem {
+  id: string;
+  file: File;
+  thumbnail?: string;
+  creativeType: 'UGC' | 'Produced';
+}
+
 export default function ModernBrandOnboarding() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -51,6 +58,7 @@ export default function ModernBrandOnboarding() {
   const [submitResult, setSubmitResult] = useState<any>(null);
   const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   const [skipAutoRedirect, setSkipAutoRedirect] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>('');
   
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
     brand_name: '',
@@ -70,7 +78,7 @@ export default function ModernBrandOnboarding() {
   const [files, setFiles] = useState<{
     guidelines?: FileUpload;
     logos: FileUpload[];
-    goldenSet: FileUpload[];
+    goldenSet: GoldenSetItem[];
   }>({
     logos: [],
     goldenSet: []
@@ -138,31 +146,185 @@ export default function ModernBrandOnboarding() {
     
     setIsSubmitting(true);
     try {
-      // Step 1: Just save core company info
+      if (!organization || !user) {
+        throw new Error('Organization or user not found. Please ensure you are signed in.');
+      }
+      
+      let guidelinesUrl = null;
+      let logoUrls: string[] = [];
+      
+      // Step 3: Upload Guidelines PDF if present
+      if (files.guidelines) {
+        console.log('Uploading guidelines PDF...');
+        setUploadProgress('Uploading brand guidelines...');
+        
+        // Generate unique filename with timestamp to avoid conflicts
+        const fileExt = files.guidelines.file.name.split('.').pop();
+        const fileName = `${Date.now()}-${brandConfig.brand_name.replace(/\s+/g, '-').toLowerCase()}.${fileExt}`;
+        const filePath = `guidelines/${organization.id}/${fileName}`;
+        
+        console.log('Upload path:', filePath);
+        
+        // Use anonymous client for storage to avoid owner_id UUID issue
+        const { data: uploadData, error: uploadError } = await supabaseAnon.storage
+          .from('brand-assets')
+          .upload(filePath, files.guidelines.file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+          
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw new Error(`Failed to upload guidelines: ${uploadError.message}`);
+        }
+        
+        console.log('Upload successful:', uploadData);
+        
+        // Get the public URL for the uploaded file
+        const { data: { publicUrl } } = supabaseAnon.storage
+          .from('brand-assets')
+          .getPublicUrl(filePath);
+          
+        guidelinesUrl = publicUrl;
+        console.log('Guidelines URL:', guidelinesUrl);
+      }
+      
+      // Upload Logo Files if present
+      if (files.logos && files.logos.length > 0) {
+        console.log(`Uploading ${files.logos.length} logo files...`);
+        setUploadProgress(`Uploading ${files.logos.length} logo file${files.logos.length > 1 ? 's' : ''}...`);
+        
+        // Upload all logos in parallel
+        const logoUploadPromises = files.logos.map(async (logoFile, index) => {
+          try {
+            const fileExt = logoFile.file.name.split('.').pop();
+            const fileName = `${Date.now()}-${index}-${brandConfig.brand_name.replace(/\s+/g, '-').toLowerCase()}.${fileExt}`;
+            const filePath = `logos/${organization.id}/${fileName}`;
+            
+            const { data: uploadData, error: uploadError } = await supabaseAnon.storage
+              .from('brand-assets')
+              .upload(filePath, logoFile.file, {
+                cacheControl: '3600',
+                upsert: false
+              });
+              
+            if (uploadError) {
+              console.error(`Logo ${index} upload error:`, uploadError);
+              throw new Error(`Failed to upload logo ${logoFile.file.name}: ${uploadError.message}`);
+            }
+            
+            // Get public URL
+            const { data: { publicUrl } } = supabaseAnon.storage
+              .from('brand-assets')
+              .getPublicUrl(filePath);
+              
+            console.log(`Logo ${index} uploaded:`, publicUrl);
+            return publicUrl;
+          } catch (error) {
+            console.error(`Error uploading logo ${index}:`, error);
+            throw error;
+          }
+        });
+        
+        // Wait for all uploads to complete
+        try {
+          logoUrls = await Promise.all(logoUploadPromises);
+          console.log('All logos uploaded successfully:', logoUrls);
+        } catch (error) {
+          throw new Error('Failed to upload one or more logo files');
+        }
+      }
+      
+      // Create brand with all data including visual and verbal identity
       const brandData = {
         name: brandConfig.brand_name,
         description: brandConfig.description || null,
         industry: brandConfig.industry || null,
         website: brandConfig.website || null,
-        // Initialize other fields as empty for now
-        logo_files: [],
-        color_palette: [],
-        tone_keywords: [],
-        approved_terms: [],
-        banned_terms: [],
-        required_disclaimers: [],
-        guidelines_pdf_url: null,
+        // Visual Identity data (Step 3)
+        logo_files: logoUrls, // Now includes all uploaded logo URLs
+        color_palette: brandConfig.color_palette, // Color hex codes from Step 3
+        // Verbal Identity data (Step 4)
+        tone_keywords: brandConfig.brand_tone ? brandConfig.brand_tone.split(',').map(t => t.trim()).filter(t => t) : [],
+        approved_terms: brandConfig.brand_vocabulary.approved,
+        banned_terms: brandConfig.brand_vocabulary.banned,
+        required_disclaimers: brandConfig.disclaimers_required,
+        // Initialize remaining fields
+        guidelines_pdf_url: guidelinesUrl, // Guidelines PDF URL
         safe_zone_config: {}
       };
       
       console.log('Creating brand with data:', brandData);
-      
-      if (!organization || !user) {
-        throw new Error('Organization or user not found. Please ensure you are signed in.');
-      }
+      setUploadProgress('Saving brand information...');
       
       const result = await createBrand.mutateAsync(brandData);
       console.log('Brand created successfully:', result);
+      const brandId = result.id;
+      
+      // Upload Golden Set files if present
+      if (files.goldenSet && files.goldenSet.length > 0) {
+        console.log(`Uploading ${files.goldenSet.length} golden set files...`);
+        setUploadProgress(`Uploading ${files.goldenSet.length} golden set example${files.goldenSet.length > 1 ? 's' : ''}...`);
+        
+        // Upload all golden set files in parallel
+        const goldenSetRecords = await Promise.all(
+          files.goldenSet.map(async (goldenItem, index) => {
+            try {
+              const fileExt = goldenItem.file.name.split('.').pop();
+              const fileName = `${goldenItem.id}-${goldenItem.file.name}`;
+              const filePath = `golden-set/${brandId}/${fileName}`;
+              
+              // Upload file to storage
+              const { data: uploadData, error: uploadError } = await supabaseAnon.storage
+                .from('brand-assets')
+                .upload(filePath, goldenItem.file, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+                
+              if (uploadError) {
+                console.error(`Golden set ${index} upload error:`, uploadError);
+                throw new Error(`Failed to upload golden set file ${goldenItem.file.name}: ${uploadError.message}`);
+              }
+              
+              // Get public URL
+              const { data: { publicUrl } } = supabaseAnon.storage
+                .from('brand-assets')
+                .getPublicUrl(filePath);
+                
+              console.log(`Golden set ${index} uploaded:`, publicUrl);
+              
+              // Return record data for database insert
+              return {
+                brand_id: brandId,
+                storage_path: filePath,
+                file_name: goldenItem.file.name,
+                file_type: goldenItem.file.type,
+                file_size: goldenItem.file.size,
+                creative_type: goldenItem.creativeType // Include the creative type
+              };
+            } catch (error) {
+              console.error(`Error uploading golden set ${index}:`, error);
+              throw error;
+            }
+          })
+        );
+        
+        // Insert records into golden_set_creatives table
+        console.log('Creating golden set records in database...');
+        setUploadProgress('Saving golden set examples...');
+        
+        const { error: insertError } = await supabase
+          .from('golden_set_creatives')
+          .insert(goldenSetRecords);
+          
+        if (insertError) {
+          console.error('Error creating golden set records:', insertError);
+          throw new Error(`Failed to save golden set records: ${insertError.message}`);
+        }
+        
+        console.log('Golden set records created successfully');
+      }
       
       setSubmitResult({ success: true });
       setRedirectCountdown(5);
@@ -172,6 +334,7 @@ export default function ModernBrandOnboarding() {
       setSubmitResult({ error: errorMessage });
     } finally {
       setIsSubmitting(false);
+      setUploadProgress('');
     }
   };
 
@@ -341,6 +504,7 @@ export default function ModernBrandOnboarding() {
             skipAutoRedirect={skipAutoRedirect}
             handleGoNow={handleGoNow}
             handleSkipRedirect={handleSkipRedirect}
+            uploadProgress={uploadProgress}
           />
         )}
       </div>
@@ -689,7 +853,11 @@ function VisualIdentityStep({ brandConfig, updateBrandConfig, files, setFiles }:
 
 function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
   const updateVocabulary = (type: 'approved' | 'banned' | 'required', value: string) => {
-    const terms = value.split(',').map(term => term.trim()).filter(term => term);
+    // Support both comma and newline separation
+    const terms = value
+      .split(/[,\n]+/)
+      .map(term => term.trim())
+      .filter(term => term);
     updateBrandConfig({
       brand_vocabulary: {
         ...brandConfig.brand_vocabulary,
@@ -737,7 +905,7 @@ function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
                 className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500 resize-none"
                 placeholder="Premium, Quality, Excellence..."
               />
-              <p className="text-xs text-gray-500">Comma-separated terms</p>
+              <p className="text-xs text-gray-500">Comma or newline separated ({brandConfig.brand_vocabulary.approved.length} terms)</p>
             </div>
             
             <div className="space-y-3">
@@ -749,7 +917,7 @@ function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
                 className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500 resize-none"
                 placeholder="Cheap, Discount, Sale..."
               />
-              <p className="text-xs text-gray-500">Terms to avoid</p>
+              <p className="text-xs text-gray-500">Terms to avoid ({brandConfig.brand_vocabulary.banned.length} terms)</p>
             </div>
             
             <div className="space-y-3">
@@ -761,7 +929,7 @@ function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
                 className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500 resize-none"
                 placeholder="Official Partner, Authorized..."
               />
-              <p className="text-xs text-gray-500">Must include terms</p>
+              <p className="text-xs text-gray-500">Must include terms ({brandConfig.brand_vocabulary.required.length} terms)</p>
             </div>
           </div>
         </div>
@@ -778,7 +946,7 @@ function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
             className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500 resize-none"
             placeholder="© 2025 Your Brand. All rights reserved.&#10;Terms and conditions apply..."
           />
-          <p className="text-xs text-gray-500">One disclaimer per line</p>
+          <p className="text-xs text-gray-500">One disclaimer per line ({brandConfig.disclaimers_required.length} disclaimers)</p>
         </div>
       </div>
     </div>
@@ -786,9 +954,54 @@ function VerbalIdentityStep({ brandConfig, updateBrandConfig }: any) {
 }
 
 function GoldenSetStep({ files, setFiles }: any) {
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newFiles = Array.from(e.target.files || []).map(file => ({ file }));
-    setFiles((prev: any) => ({ ...prev, goldenSet: [...prev.goldenSet, ...newFiles] }));
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      // Process each file
+      const newItems = await Promise.all(
+      selectedFiles.map(async (file) => {
+        const item: GoldenSetItem = {
+          id: crypto.randomUUID(),
+          file,
+          creativeType: 'Produced', // Default to Produced
+          thumbnail: undefined
+        };
+        
+        // Generate thumbnail for videos
+        if (file.type.startsWith('video/')) {
+          try {
+            const { generateVideoThumbnail } = await import('@/lib/video-utils');
+            item.thumbnail = await generateVideoThumbnail(file);
+          } catch (error) {
+            console.error('Failed to generate thumbnail:', error);
+          }
+        }
+        
+        return item;
+      })
+      );
+      
+      setFiles((prev: any) => ({ ...prev, goldenSet: [...prev.goldenSet, ...newItems] }));
+    } catch (error) {
+      console.error('Error processing files:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  const updateCreativeType = (id: string, type: 'UGC' | 'Produced') => {
+    setFiles((prev: any) => ({
+      ...prev,
+      goldenSet: prev.goldenSet.map((item: GoldenSetItem) =>
+        item.id === id ? { ...item, creativeType: type } : item
+      )
+    }));
   };
 
   return (
@@ -833,38 +1046,96 @@ function GoldenSetStep({ files, setFiles }: any) {
           />
         </div>
         
+        {isProcessing && (
+          <div className="mt-4 flex items-center justify-center space-x-2 text-purple-400">
+            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-sm">Processing videos...</span>
+          </div>
+        )}
+        
         {files.goldenSet.length > 0 && (
-          <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
-            {files.goldenSet.map((file: FileUpload, index: number) => (
-              <div key={index} className="relative bg-[#1A1F2E] rounded-lg p-3 border border-gray-700">
-                {file.file.type.startsWith('image/') ? (
-                  <img
-                    src={URL.createObjectURL(file.file)}
-                    alt={`Golden ${index + 1}`}
-                    className="w-full h-32 object-cover rounded"
-                  />
-                ) : (
-                  <div className="w-full h-32 bg-gray-800 rounded flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
+          <div className="mt-6 space-y-4">
+            {files.goldenSet.map((item: GoldenSetItem) => (
+              <div key={item.id} className="bg-[#1A1F2E] rounded-lg p-4 border border-gray-700">
+                <div className="flex gap-4">
+                  {/* Thumbnail */}
+                  <div className="flex-shrink-0">
+                    {item.file.type.startsWith('image/') ? (
+                      <img
+                        src={URL.createObjectURL(item.file)}
+                        alt={item.file.name}
+                        className="w-32 h-32 object-cover rounded-lg"
+                      />
+                    ) : item.thumbnail ? (
+                      <img
+                        src={item.thumbnail}
+                        alt={item.file.name}
+                        className="w-32 h-32 object-cover rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-32 h-32 bg-gray-800 rounded-lg flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
-                )}
-                <p className="text-xs text-gray-400 mt-2 truncate">{file.file.name}</p>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFiles((prev: any) => ({
-                      ...prev,
-                      goldenSet: prev.goldenSet.filter((_: any, i: number) => i !== index)
-                    }));
-                  }}
-                  className="absolute top-1 right-1 w-6 h-6 bg-red-500/20 hover:bg-red-500/30 rounded-full flex items-center justify-center"
-                >
-                  <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                  
+                  {/* File info and type selector */}
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-200">{item.file.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setFiles((prev: any) => ({
+                            ...prev,
+                            goldenSet: prev.goldenSet.filter((g: GoldenSetItem) => g.id !== item.id)
+                          }));
+                        }}
+                        className="w-6 h-6 bg-red-500/20 hover:bg-red-500/30 rounded-full flex items-center justify-center"
+                      >
+                        <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    {/* Type selector */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-gray-400">Type:</span>
+                      <div className="flex rounded-lg overflow-hidden border border-gray-600">
+                        <button
+                          onClick={() => updateCreativeType(item.id, 'UGC')}
+                          className={`px-4 py-1.5 text-xs font-medium transition-colors ${
+                            item.creativeType === 'UGC'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          UGC
+                        </button>
+                        <button
+                          onClick={() => updateCreativeType(item.id, 'Produced')}
+                          className={`px-4 py-1.5 text-xs font-medium transition-colors ${
+                            item.creativeType === 'Produced'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          Produced
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -874,7 +1145,7 @@ function GoldenSetStep({ files, setFiles }: any) {
   );
 }
 
-function ReviewStep({ brandConfig, files, onSubmit, isSubmitting, submitResult, setSubmitResult, redirectCountdown, skipAutoRedirect, handleGoNow, handleSkipRedirect }: any) {
+function ReviewStep({ brandConfig, files, onSubmit, isSubmitting, submitResult, setSubmitResult, redirectCountdown, skipAutoRedirect, handleGoNow, handleSkipRedirect, uploadProgress }: any) {
   return (
     <div className="space-y-8">
       {!submitResult ? (
@@ -975,7 +1246,7 @@ function ReviewStep({ brandConfig, files, onSubmit, isSubmitting, submitResult, 
             disabled={isSubmitting}
             className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
           >
-            {isSubmitting ? 'Creating Brand...' : 'Create Brand'}
+            {isSubmitting ? (uploadProgress || 'Creating Brand...') : 'Create Brand'}
           </button>
         </>
       ) : (
