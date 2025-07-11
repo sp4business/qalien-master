@@ -572,6 +572,38 @@ async function validateMigration() {
 
 ## 🐛 **Common Issues & Solutions**
 
+### **Clerk + Supabase Integration**
+
+```typescript
+// DON'T use custom fetch - use accessToken option
+createClient(url, key, {
+  accessToken: async () => await getToken({ template: 'supabase' })
+})
+```
+
+### **Storage Upload Pattern**
+
+```typescript
+// Use anonymous client to avoid "invalid UUID" errors
+await supabaseAnon.storage.from('brand-assets').upload(...)
+
+// CRITICAL: Store full URLs in database to avoid relative path issues
+const { data: { publicUrl } } = supabaseAnon.storage
+  .from('brand-assets')
+  .getPublicUrl(filePath);
+
+// Ensure we have the full URL
+const fullStorageUrl = publicUrl.startsWith('http') 
+  ? publicUrl 
+  : `https://[project-ref].supabase.co/storage/v1/object/public/brand-assets/${publicUrl}`;
+```
+
+### **RLS Policy Gotchas**
+
+*   Complex policies with JOINs can fail.
+*   Start simple, add complexity later.
+*   Test with the Supabase SQL editor first.
+
 ### **Issue 1: CORS in Edge Functions**
 ```typescript
 // Add CORS headers
@@ -637,6 +669,34 @@ try {
   }
   throw error
 }
+```
+
+### **Issue 5: Video Thumbnail Generation**
+```typescript
+// Simple approach using native HTML5 video element
+// Avoids CORS issues with canvas-based thumbnail generation
+<video
+  src={videoUrl}
+  preload="metadata"
+  onLoadedMetadata={(e) => {
+    e.currentTarget.currentTime = 1; // Seek to 1 second
+  }}
+/>
+```
+
+### **Issue 6: PDF Download vs View**
+```typescript
+// Force download instead of opening in new tab
+const response = await fetch(pdfUrl);
+const blob = await response.blob();
+const blobUrl = URL.createObjectURL(blob);
+const link = document.createElement('a');
+link.href = blobUrl;
+link.download = fileName;
+document.body.appendChild(link);
+link.click();
+document.body.removeChild(link);
+URL.revokeObjectURL(blobUrl);
 ```
 
 ---

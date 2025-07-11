@@ -1,19 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { fetchAuthSession } from '../lib/auth-stubs';
 import { useRouter } from 'next/navigation';
 import CampaignModal from './CampaignModal';
 import TeamManagementModal from './TeamManagementModal';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
-import { API_ENDPOINT } from '../aws-config';
+import { useSupabaseClient } from '@/lib/supabase';
 
 interface Brand {
-  brand_id: string;
+  id: string;
   brand_name: string;
   industry: string;
   description?: string;
-  org_id: string;
+  clerk_org_id: string;
 }
 
 interface Campaign {
@@ -37,6 +36,7 @@ interface BrandDetailProps {
 
 export default function BrandDetail({ brandId }: BrandDetailProps) {
   const router = useRouter();
+  const supabase = useSupabaseClient();
   const [brand, setBrand] = useState<Brand | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,63 +50,33 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
   const fetchBrandAndCampaigns = async () => {
     try {
       setIsLoading(true);
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
+      
+      // Fetch brand details from Supabase
+      const { data: brandData, error: brandError } = await supabase
+        .from('brands')
+        .select('*')
+        .eq('id', brandId)
+        .single();
 
-      if (!token) {
-        throw new Error('No authentication token available');
+      if (brandError) {
+        console.error('Error fetching brand:', brandError);
+        throw brandError;
       }
 
-      // Fetch brand details
-      const brandResponse = await fetch(`${API_ENDPOINT}/brand/${brandId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (brandResponse.ok) {
-        const brandData = await brandResponse.json();
-        console.log('BrandDetail - Fetched brand response:', brandData);
-        // The API returns the brand wrapped in a 'brand' property
-        setBrand(brandData.brand || brandData);
-      } else {
-        // Set mock brand data if API fails
-        setBrand({
-          brand_id: brandId,
-          brand_name: 'Test Brand',
-          industry: 'Technology',
-          description: 'A test brand for development',
-          org_id: 'org_test'
-        });
-      }
-
-      // Fetch campaigns
-      const campaignsResponse = await fetch(`${API_ENDPOINT}/brands/${brandId}/campaigns`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (campaignsResponse.ok) {
-        const campaignsData = await campaignsResponse.json();
-        setCampaigns(campaignsData.campaigns || []);
-      } else {
-        // Set empty campaigns to show empty state
-        setCampaigns([]);
-      }
+      setBrand(brandData);
+      
+      // For now, set empty campaigns since we haven't implemented campaigns in Supabase yet
+      setCampaigns([]);
+      
     } catch (error: any) {
       console.error('Error fetching brand data:', error);
       // Set fallback data on error
       setBrand({
-        brand_id: brandId,
+        id: brandId,
         brand_name: 'Test Brand',
         industry: 'Technology',
         description: 'A test brand for development',
-        org_id: 'org_test'
+        clerk_org_id: 'org_test'
       });
       
       setCampaigns([]);
@@ -180,12 +150,22 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => {
-                  console.log('Back to Brands clicked - brand:', brand, 'org_id:', brand?.org_id);
-                  router.push(brand?.org_id ? `/?org=${brand.org_id}` : '/');
+                  console.log('Back to Brands clicked - brand:', brand, 'clerk_org_id:', brand?.clerk_org_id);
+                  router.push(brand?.clerk_org_id ? `/?org=${brand.clerk_org_id}` : '/');
                 }}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
               >
                 ← Back to Brands
+              </button>
+              <button
+                onClick={() => router.push(`/brand/${brandId}/settings`)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Brand Settings
               </button>
               <button
                 onClick={() => setTeamModalOpen(true)}
