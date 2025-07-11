@@ -1,0 +1,764 @@
+/* QAlien Loading Screen Animations */
+
+/* Background gradient animation - black theme */
+@keyframes gradientShift {
+  0% {
+    background: linear-gradient(135deg, #000000 0%, #111111 50%, #1a1a1a 100%);
+  }
+  33% {
+    background: linear-gradient(135deg, #111111 0%, #1a1a1a 50%, #0f0f0f 100%);
+  }
+  66% {
+    background: linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 50%, #111111 100%);
+  }
+  100% {
+    background: linear-gradient(135deg, #000000 0%, #111111 50%, #1a1a1a 100%);
+  }
+}
+
+.loading-background {
+  animation: gradientShift 6s ease-in-out infinite;
+}
+
+/* Character floating animations */
+@keyframes alienFloat {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-12px) scale(1.02);
+  }
+}
+
+@keyframes alienFloatSubtle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes alienFloatIntense {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-18px) scale(1.05);
+  }
+}
+
+.alien-float {
+  animation: alienFloat 3.5s ease-in-out infinite;
+}
+
+.alien-float-subtle {
+  animation: alienFloatSubtle 3s ease-in-out infinite;
+}
+
+.alien-float-intense {
+  animation: alienFloatIntense 4s ease-in-out infinite;
+}
+
+/* Wave pulse animations - mimicking the QAlien's antenna waves */
+@keyframes pulseWaves {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  25% {
+    transform: scale(1.1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.4;
+  }
+  75% {
+    transform: scale(1.7);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(2.0);
+    opacity: 0;
+  }
+}
+
+.wave-pulse {
+  animation: pulseWaves 2.5s ease-out infinite;
+  border-radius: 50%;
+  border: 2px solid #7DD3C0;
+}
+
+.wave-pulse:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.wave-pulse:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+.wave-pulse:nth-child(3) {
+  animation-delay: 0.8s;
+}
+
+.wave-pulse:nth-child(4) {
+  animation-delay: 1.2s;
+}
+
+/* Antenna signal waves - inspired by the QAlien image */
+@keyframes signalWave {
+  0% {
+    transform: scale(0.5) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.8) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.signal-wave {
+  animation: signalWave 2s ease-out infinite;
+  border-radius: 50%;
+  border: 1px solid #7DD3C0;
+}
+
+.signal-wave:nth-child(1) { animation-delay: 0s; }
+.signal-wave:nth-child(2) { animation-delay: 0.3s; }
+.signal-wave:nth-child(3) { animation-delay: 0.6s; }
+
+/* Character rotation animation */
+@keyframes alienRotate {
+  0%, 100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+.alien-rotate {
+  animation: alienRotate 4s ease-in-out infinite;
+}
+
+/* Glow effect animation */
+@keyframes alienGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(125, 211, 192, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(125, 211, 192, 0.6);
+  }
+}
+
+.alien-glow {
+  animation: alienGlow 3s ease-in-out infinite;
+}
+
+/* Floating particles */
+@keyframes float-1 {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) translateX(0px);
+  }
+  33% {
+    transform: translateY(-20px) rotate(120deg) translateX(10px);
+  }
+  66% {
+    transform: translateY(-10px) rotate(240deg) translateX(-5px);
+  }
+}
+
+@keyframes float-2 {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) translateX(0px);
+  }
+  33% {
+    transform: translateY(-15px) rotate(180deg) translateX(-8px);
+  }
+  66% {
+    transform: translateY(-25px) rotate(270deg) translateX(12px);
+  }
+}
+
+@keyframes float-3 {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) translateX(0px);
+  }
+  33% {
+    transform: translateY(-30px) rotate(90deg) translateX(6px);
+  }
+  66% {
+    transform: translateY(-5px) rotate(180deg) translateX(-10px);
+  }
+}
+
+.animate-float-1 {
+  animation: float-1 8s ease-in-out infinite;
+}
+
+.animate-float-2 {
+  animation: float-2 9s ease-in-out infinite;
+}
+
+.animate-float-3 {
+  animation: float-3 7s ease-in-out infinite;
+}
+
+/* Loading message typing animation */
+@keyframes typing {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes blinkCursor {
+  from, to {
+    border-color: transparent;
+  }
+  50% {
+    border-color: #A78BFA;
+  }
+}
+
+.typing-animation {
+  overflow: hidden;
+  border-right: 2px solid #A78BFA;
+  white-space: nowrap;
+  animation: typing 2s steps(40, end), blinkCursor 0.75s step-end infinite;
+}
+
+/* Loading dots animation */
+@keyframes loadingDots {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.loading-dot {
+  animation: loadingDots 1.4s ease-in-out infinite;
+}
+
+.loading-dot:nth-child(1) { animation-delay: 0s; }
+.loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Progress bar animation */
+@keyframes progressFill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.progress-fill {
+  animation: progressFill 0.5s ease-out;
+  transform-origin: left;
+}
+
+/* Shimmer effect for loading elements */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Screen fade in/out animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.fade-out {
+  animation: fadeOut 0.3s ease-in;
+}
+
+/* Alien character breathing effect */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+.alien-breathe {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+/* Performance optimizations */
+.alien-character,
+.wave-pulse,
+.signal-wave,
+.loading-background {
+  will-change: transform, opacity;
+}
+
+.alien-character {
+  transform: translateZ(0); /* Enable hardware acceleration */
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .wave-pulse,
+  .signal-wave {
+    border-width: 3px;
+  }
+  
+  .alien-glow {
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.8);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .alien-float,
+  .alien-float-subtle,
+  .alien-float-intense,
+  .wave-pulse,
+  .signal-wave,
+  .alien-rotate,
+  .alien-glow,
+  .animate-float-1,
+  .animate-float-2,
+  .animate-float-3,
+  .loading-background,
+  .typing-animation,
+  .loading-dot,
+  .shimmer,
+  .alien-breathe {
+    animation: none;
+  }
+  
+  .alien-character {
+    transform: none;
+  }
+  
+  .loading-background {
+    background: #000000;
+  }
+  
+  /* Provide alternative visual feedback for reduced motion */
+  .wave-pulse {
+    opacity: 0.3;
+    transform: scale(1.2);
+  }
+  
+  .loading-dot {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+/* Custom utility classes */
+.qalien-loading-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.qalien-text-glow {
+  text-shadow: 0 0 10px rgba(167, 139, 250, 0.6);
+}
+
+/* Focus management for accessibility */
+.qalien-loading-container:focus-visible {
+  outline: 2px solid #A78BFA;
+  outline-offset: 2px;
+}
+
+/* ===== CONTEXTUAL QALIEN ANIMATIONS ===== */
+
+/* Error State - Finger Scratching Animation */
+@keyframes fingerScratch {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  25% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+  75% {
+    transform: translateY(-2px);
+  }
+}
+
+.alien-error-finger {
+  animation: fingerScratch 1.5s ease-in-out infinite;
+}
+
+/* Auth State - Interface Squiggle Animation */
+@keyframes interfaceSquiggle {
+  0%, 100% {
+    transform: translateX(0px) scaleX(1);
+    opacity: 0.8;
+  }
+  25% {
+    transform: translateX(1px) scaleX(1.02);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateX(-1px) scaleX(0.98);
+    opacity: 1;
+  }
+  75% {
+    transform: translateX(1px) scaleX(1.01);
+    opacity: 0.9;
+  }
+}
+
+@keyframes lockCombobulate {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  20% {
+    transform: rotate(-5deg) scale(1.05);
+  }
+  40% {
+    transform: rotate(3deg) scale(0.95);
+  }
+  60% {
+    transform: rotate(-2deg) scale(1.02);
+  }
+  80% {
+    transform: rotate(1deg) scale(0.98);
+  }
+}
+
+.alien-auth-interface {
+  animation: interfaceSquiggle 2s ease-in-out infinite;
+}
+
+.alien-auth-lock {
+  animation: lockCombobulate 2.5s ease-in-out infinite;
+}
+
+/* Processing State - Rotating Rings Animation */
+@keyframes ringRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ringRotateReverse {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.alien-processing-ring-1 {
+  animation: ringRotate 3s linear infinite;
+}
+
+.alien-processing-ring-2 {
+  animation: ringRotateReverse 4s linear infinite;
+}
+
+.alien-processing-ring-3 {
+  animation: ringRotate 5s linear infinite;
+}
+
+/* Success State - Thumbs Up Pulse Animation */
+@keyframes thumbsPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes checkmarkPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+.alien-success-thumb {
+  animation: thumbsPulse 1.2s ease-in-out infinite;
+}
+
+.alien-success-checkmark {
+  animation: checkmarkPulse 1.5s ease-in-out infinite;
+}
+
+/* Empty State - Magnifying Glass Sweep Animation */
+@keyframes magnifyingSweep {
+  0%, 100% {
+    transform: rotate(-10deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes magnifyingGlass {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.alien-empty-magnifying {
+  animation: magnifyingSweep 3s ease-in-out infinite, magnifyingGlass 2s ease-in-out infinite;
+}
+
+/* General State - Default Wave Animations (keep existing) */
+.alien-general-waves {
+  /* Uses existing wave-pulse animations */
+}
+
+/* Contextual Character Container */
+.alien-contextual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.alien-contextual-image {
+  filter: drop-shadow(0 0 20px rgba(125, 211, 192, 0.3));
+  transition: filter 0.3s ease;
+}
+
+.alien-contextual-image:hover {
+  filter: drop-shadow(0 0 30px rgba(125, 211, 192, 0.5));
+}
+
+/* Overlay elements for targeted animations */
+.alien-animation-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Error overlay - targets finger area */
+.alien-error-overlay {
+  background: transparent;
+}
+
+.alien-error-overlay::before {
+  content: '';
+  position: absolute;
+  top: 20%;
+  right: 25%;
+  width: 15%;
+  height: 15%;
+  background: rgba(255, 0, 0, 0.1);
+  border-radius: 50%;
+  transform-origin: center;
+}
+
+.alien-error-overlay::before {
+  animation: fingerScratch 1.5s ease-in-out infinite;
+}
+
+/* Auth overlay - targets interface area */
+.alien-auth-overlay {
+  background: transparent;
+}
+
+.alien-auth-overlay::before {
+  content: '';
+  position: absolute;
+  top: 30%;
+  right: 10%;
+  width: 30%;
+  height: 40%;
+  background: rgba(0, 255, 255, 0.05);
+  border-radius: 8px;
+  transform-origin: center;
+}
+
+.alien-auth-overlay::before {
+  animation: interfaceSquiggle 2s ease-in-out infinite;
+}
+
+/* Processing overlay - targets rings area */
+.alien-processing-overlay {
+  background: transparent;
+}
+
+.alien-processing-overlay::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 50%;
+  width: 80%;
+  height: 80%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  transform-origin: center;
+  transform: translateX(-50%);
+}
+
+.alien-processing-overlay::before {
+  animation: ringRotate 3s linear infinite;
+}
+
+/* Success overlay - targets thumb area */
+.alien-success-overlay {
+  background: transparent;
+}
+
+.alien-success-overlay::before {
+  content: '';
+  position: absolute;
+  top: 40%;
+  left: 15%;
+  width: 20%;
+  height: 25%;
+  background: rgba(0, 255, 0, 0.1);
+  border-radius: 50%;
+  transform-origin: center;
+}
+
+.alien-success-overlay::before {
+  animation: thumbsPulse 1.2s ease-in-out infinite;
+}
+
+/* Empty overlay - targets magnifying glass area */
+.alien-empty-overlay {
+  background: transparent;
+}
+
+.alien-empty-overlay::before {
+  content: '';
+  position: absolute;
+  top: 35%;
+  right: 20%;
+  width: 25%;
+  height: 25%;
+  background: rgba(255, 255, 0, 0.1);
+  border-radius: 50%;
+  transform-origin: center;
+}
+
+.alien-empty-overlay::before {
+  animation: magnifyingSweep 3s ease-in-out infinite;
+}
+
+/* Reduced motion support for contextual animations */
+@media (prefers-reduced-motion: reduce) {
+  .alien-error-finger,
+  .alien-auth-interface,
+  .alien-auth-lock,
+  .alien-processing-ring-1,
+  .alien-processing-ring-2,
+  .alien-processing-ring-3,
+  .alien-success-thumb,
+  .alien-success-checkmark,
+  .alien-empty-magnifying,
+  .alien-error-overlay::before,
+  .alien-auth-overlay::before,
+  .alien-processing-overlay::before,
+  .alien-success-overlay::before,
+  .alien-empty-overlay::before {
+    animation: none;
+  }
+  
+  /* Provide subtle static indicators */
+  .alien-error-overlay::before {
+    opacity: 0.2;
+  }
+  
+  .alien-auth-overlay::before {
+    opacity: 0.2;
+  }
+  
+  .alien-processing-overlay::before {
+    opacity: 0.2;
+  }
+  
+  .alien-success-overlay::before {
+    opacity: 0.2;
+  }
+  
+  .alien-empty-overlay::before {
+    opacity: 0.2;
+  }
+}
+
+/* Print media - hide loading animations */
+@media print {
+  .alien-float,
+  .wave-pulse,
+  .signal-wave,
+  .loading-background,
+  .shimmer,
+  .alien-glow,
+  .alien-error-finger,
+  .alien-auth-interface,
+  .alien-auth-lock,
+  .alien-processing-ring-1,
+  .alien-processing-ring-2,
+  .alien-processing-ring-3,
+  .alien-success-thumb,
+  .alien-success-checkmark,
+  .alien-empty-magnifying {
+    display: none;
+  }
+}

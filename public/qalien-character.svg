@@ -1,0 +1,82 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradients for the alien character -->
+    <radialGradient id="alienBodyGradient" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" style="stop-color:#8FEACA;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7DD3C0;stop-opacity:1" />
+    </radialGradient>
+    
+    <radialGradient id="alienHeadGradient" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" style="stop-color:#9FECDB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7DD3C0;stop-opacity:1" />
+    </radialGradient>
+    
+    <!-- Glow effect filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background circle for character -->
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#7DD3C0" stroke-width="1" opacity="0.2" class="alien-glow"/>
+  
+  <!-- Signal waves emanating from antenna (top-left) -->
+  <g class="signal-waves-left" transform="translate(75, 25)">
+    <circle r="8" fill="none" stroke="#7DD3C0" stroke-width="1.5" opacity="0.6" class="signal-wave"/>
+    <circle r="12" fill="none" stroke="#7DD3C0" stroke-width="1" opacity="0.4" class="signal-wave"/>
+    <circle r="16" fill="none" stroke="#7DD3C0" stroke-width="0.5" opacity="0.2" class="signal-wave"/>
+  </g>
+  
+  <!-- Signal waves emanating from antenna (top-right) -->
+  <g class="signal-waves-right" transform="translate(125, 25)">
+    <circle r="8" fill="none" stroke="#7DD3C0" stroke-width="1.5" opacity="0.6" class="signal-wave"/>
+    <circle r="12" fill="none" stroke="#7DD3C0" stroke-width="1" opacity="0.4" class="signal-wave"/>
+    <circle r="16" fill="none" stroke="#7DD3C0" stroke-width="0.5" opacity="0.2" class="signal-wave"/>
+  </g>
+  
+  <!-- Main alien character group -->
+  <g class="alien-character" transform="translate(100, 100)">
+    
+    <!-- Alien body (lower oval) -->
+    <ellipse cx="0" cy="25" rx="35" ry="25" fill="url(#alienBodyGradient)" filter="url(#glow)"/>
+    
+    <!-- Alien head (larger oval) -->
+    <ellipse cx="0" cy="-5" rx="40" ry="45" fill="url(#alienHeadGradient)" filter="url(#glow)"/>
+    
+    <!-- Left antenna -->
+    <line x1="-25" y1="-35" x2="-25" y2="-55" stroke="#7DD3C0" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="-25" cy="-55" r="3" fill="#A78BFA" class="antenna-tip"/>
+    
+    <!-- Right antenna -->
+    <line x1="25" y1="-35" x2="25" y2="-55" stroke="#7DD3C0" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="25" cy="-55" r="3" fill="#A78BFA" class="antenna-tip"/>
+    
+    <!-- Large oval eyes -->
+    <ellipse cx="-15" cy="-10" rx="6" ry="12" fill="#1A202C"/>
+    <ellipse cx="15" cy="-10" rx="6" ry="12" fill="#1A202C"/>
+    
+    <!-- Eye highlights -->
+    <ellipse cx="-13" cy="-13" rx="2" ry="3" fill="#FFFFFF" opacity="0.8"/>
+    <ellipse cx="17" cy="-13" rx="2" ry="3" fill="#FFFFFF" opacity="0.8"/>
+    
+    <!-- Small mouth -->
+    <ellipse cx="0" cy="5" rx="3" ry="2" fill="#1A202C"/>
+    
+    <!-- Character outline for emphasis -->
+    <ellipse cx="0" cy="-5" rx="40" ry="45" fill="none" stroke="#6BC5B8" stroke-width="1" opacity="0.5"/>
+    <ellipse cx="0" cy="25" rx="35" ry="25" fill="none" stroke="#6BC5B8" stroke-width="1" opacity="0.5"/>
+  </g>
+  
+  <!-- Larger pulsing wave rings around entire character -->
+  <g class="wave-rings" transform="translate(100, 100)">
+    <circle r="60" fill="none" stroke="#A78BFA" stroke-width="2" opacity="0.4" class="wave-pulse"/>
+    <circle r="75" fill="none" stroke="#A78BFA" stroke-width="1.5" opacity="0.3" class="wave-pulse"/>
+    <circle r="90" fill="none" stroke="#A78BFA" stroke-width="1" opacity="0.2" class="wave-pulse"/>
+    <circle r="105" fill="none" stroke="#A78BFA" stroke-width="0.5" opacity="0.1" class="wave-pulse"/>
+  </g>
+  
+</svg>
