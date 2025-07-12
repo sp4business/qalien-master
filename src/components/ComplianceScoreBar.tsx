@@ -6,15 +6,18 @@ interface ComplianceScoreBarProps {
 }
 
 export default function ComplianceScoreBar({ score, compact = false }: ComplianceScoreBarProps) {
+  // Ensure score is a valid number
+  const safeScore = typeof score === 'number' && !isNaN(score) ? Math.max(0, Math.min(100, score)) : 0;
+  
   const getScoreColor = () => {
-    if (score >= 90) return 'bg-green-500';
-    if (score >= 70) return 'bg-yellow-500';
+    if (safeScore >= 90) return 'bg-green-500';
+    if (safeScore >= 70) return 'bg-yellow-500';
     return 'bg-red-500';
   };
 
   const getTextColor = () => {
-    if (score >= 90) return 'text-green-400';
-    if (score >= 70) return 'text-yellow-400';
+    if (safeScore >= 90) return 'text-green-400';
+    if (safeScore >= 70) return 'text-yellow-400';
     return 'text-red-400';
   };
 
@@ -24,11 +27,11 @@ export default function ComplianceScoreBar({ score, compact = false }: Complianc
         <div className="w-16 h-2 bg-gray-800 rounded-full overflow-hidden">
           <div 
             className={`h-full ${getScoreColor()} transition-all duration-500`}
-            style={{ width: `${score}%` }}
+            style={{ width: `${safeScore}%` }}
           />
         </div>
         <span className={`text-xs font-medium ${getTextColor()}`}>
-          {score}%
+          {safeScore}%
         </span>
       </div>
     );
@@ -37,19 +40,19 @@ export default function ComplianceScoreBar({ score, compact = false }: Complianc
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-5xl font-bold text-white">{score}%</span>
+        <span className="text-5xl font-bold text-white">{safeScore}%</span>
         <span className={`text-sm px-3 py-1 rounded-full ${
-          score >= 90 ? 'bg-green-500/20 text-green-400' :
-          score >= 70 ? 'bg-yellow-500/20 text-yellow-400' :
+          safeScore >= 90 ? 'bg-green-500/20 text-green-400' :
+          safeScore >= 70 ? 'bg-yellow-500/20 text-yellow-400' :
           'bg-red-500/20 text-red-400'
         }`}>
-          {score >= 90 ? 'Excellent' : score >= 70 ? 'Good' : 'Needs Improvement'}
+          {safeScore >= 90 ? 'Excellent' : safeScore >= 70 ? 'Good' : 'Needs Improvement'}
         </span>
       </div>
       <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
         <div 
           className={`h-full ${getScoreColor()} transition-all duration-500 relative`}
-          style={{ width: `${score}%` }}
+          style={{ width: `${safeScore}%` }}
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/20" />
         </div>

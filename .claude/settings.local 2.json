@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(supabase stop:*)",
+      "Bash(supabase start:*)",
+      "Bash(rm:*)",
+      "Bash(supabase db reset:*)",
+      "WebFetch(domain:clerk.com)",
+      "WebFetch(domain:supabase.com)",
+      "Bash(mkdir:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(supabase status:*)"
+    ],
+    "deny": []
+  }
+}

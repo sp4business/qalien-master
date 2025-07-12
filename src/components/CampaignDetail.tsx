@@ -19,7 +19,16 @@ interface Creative {
   upload_date: string;
   mime_type: string;
   thumbnail_url?: string;
-  analysis: {
+  frontend_report?: Array<{
+    category: string;
+    icon: string;
+    score: number;
+    status: 'pass' | 'warning' | 'fail';
+    feedback: string;
+    suggestions?: string[];
+  }>;
+  overall_status?: 'approved' | 'warning' | 'failed';
+  analysis?: {
     executive_summary: string;
     details: {
       logo_usage: { score: number; notes: string };
@@ -40,31 +49,53 @@ const mockCreatives: Creative[] = [
     status: 'Approved',
     upload_date: '1/14/2024',
     mime_type: 'image/jpeg',
-    analysis: {
-      executive_summary: 'Overall, this asset maintains high brand standards with excellent logo usage and color consistency. Minor adjustments to typography sizing could further enhance brand alignment.',
-      details: {
-        logo_usage: { 
-          score: 95, 
-          notes: 'Logo is properly placed in the designated safe zone with correct clear space. The contrast ratio meets accessibility standards.'
-        },
-        color_palette: { 
-          score: 90, 
-          notes: 'Primary brand colors are used effectively. Background gradient aligns with brand guidelines.'
-        },
-        typography: { 
-          score: 88, 
-          notes: 'Font family matches brand standards. Consider increasing headline size by 2pt for better hierarchy.'
-        },
-        messaging_tone: { 
-          score: 94, 
-          notes: 'Messaging perfectly captures the playful yet sophisticated brand voice. Call-to-action is clear and compelling.'
-        },
-        layout_composition: { 
-          score: 92, 
-          notes: 'Well-balanced composition with proper visual hierarchy. White space usage enhances readability.'
-        }
+    frontend_report: [
+      {
+        category: 'Logos/Iconography',
+        icon: '🏷️',
+        score: 95,
+        status: 'pass',
+        feedback: 'Logo is properly placed in the designated safe zone with correct clear space. The contrast ratio meets accessibility standards.',
+        suggestions: ['Consider adding a subtle drop shadow for better visibility on light backgrounds']
+      },
+      {
+        category: 'Colors/Palette',
+        icon: '🎨',
+        score: 90,
+        status: 'pass',
+        feedback: 'Primary brand colors are used effectively. Background gradient aligns with brand guidelines.'
+      },
+      {
+        category: 'Brand Vocabulary',
+        icon: '📝',
+        score: 88,
+        status: 'warning',
+        feedback: 'Most brand vocabulary is correct, but some adjustments needed.',
+        suggestions: ['Replace "Buy Now" with "Get Yours Today"', 'Use "Experience" instead of "Try"']
+      },
+      {
+        category: 'Brand Tone',
+        icon: '💬',
+        score: 94,
+        status: 'pass',
+        feedback: 'Messaging perfectly captures the playful yet sophisticated brand voice. Call-to-action is clear and compelling.'
+      },
+      {
+        category: 'Disclaimers & Required Language',
+        icon: '⚖️',
+        score: 100,
+        status: 'pass',
+        feedback: 'All required legal disclaimers are present and properly formatted.'
+      },
+      {
+        category: 'Layout/Safe-zone',
+        icon: '📐',
+        score: 92,
+        status: 'pass',
+        feedback: 'Well-balanced composition with proper visual hierarchy. White space usage enhances readability.'
       }
-    }
+    ],
+    overall_status: 'approved'
   }
 ];
 
@@ -118,6 +149,8 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
           upload_date: new Date(asset.created_at).toLocaleDateString(),
           mime_type: asset.mime_type || 'image/jpeg',
           thumbnail_url: publicUrl,
+          frontend_report: asset.frontend_report || undefined,
+          overall_status: asset.overall_status || undefined,
           analysis: {
             executive_summary: isProcessing ? 'Processing...' : 'Analysis complete',
             details: {
