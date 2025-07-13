@@ -1,27 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { fetchAuthSession } from '../lib/auth-stubs';
-import { API_ENDPOINT } from '../aws-config';
-
-interface TeamMember {
-  user_id: string;
-  email: string;
-  name: string;
-  role: 'Admin' | 'Editor' | 'Viewer';
-  status: 'active' | 'pending';
-  invited_at: string;
-  accepted_at?: string;
-}
-
-interface PendingInvitation {
-  invitation_id: string;
-  invited_email: string;
-  role: 'Admin' | 'Editor' | 'Viewer';
-  invited_by: string;
-  invited_at: string;
-  expires_at: string;
-}
+import { useTeamManagement } from '@/hooks/useTeamManagement';
+import { useAuth } from '@clerk/nextjs';
 
 interface TeamManagementModalProps {
   isOpen: boolean;
@@ -38,61 +19,50 @@ export default function TeamManagementModal({
   brandName,
   currentUserRole = 'Admin'
 }: TeamManagementModalProps) {
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    members,
+    isLoading,
+    error: teamError,
+    isAdmin,
+    organization,
+    sendInvitations,
+    removeMember,
+    updateMemberRole,
+    inviteTeamLoading,
+    refetch
+  } = useTeamManagement();
+
+  const { user } = useAuth();
   const [showInviteForm, setShowInviteForm] = useState(false);
   
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'Admin' | 'Editor' | 'Viewer'>('Editor');
-  const [inviteScope, setInviteScope] = useState<'brand' | 'organization'>('brand');
+  const [inviteRole, setInviteRole] = useState<'admin' | 'member' | 'viewer'>('member');
   const [isInviting, setIsInviting] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
+  // Reset form when modal closes
   useEffect(() => {
-    if (isOpen) {
-      fetchTeamMembers();
+    if (!isOpen) {
+      setShowInviteForm(false);
+      setInviteEmail('');
+      setInviteRole('member');
+      setError('');
+      setSuccessMessage('');
     }
-  }, [isOpen, brandId]);
+  }, [isOpen]);
 
-  const fetchTeamMembers = async () => {
-    try {
-      setIsLoading(true);
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
-
-      if (!token) {
-        throw new Error('No authentication token available');
-      }
-
-      const response = await fetch(`${API_ENDPOINT}/brands/${brandId}/members`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMembers(data.members || []);
-        setPendingInvitations(data.pending_invitations || []);
-      } else {
-        const errorData = await response.json();
-        const errorMessage = errorData.error?.message || errorData.message || 'Failed to load team members';
-        setError(`Unable to load team: ${errorMessage}`);
-      }
-    } catch (error: any) {
-      console.error('Error fetching team members:', error);
-      setError('Network error: Unable to connect to server. Please check your connection and try again.');
-    } finally {
-      setIsLoading(false);
+  // Display team error if any
+  useEffect(() => {
+    if (teamError) {
+      setError(teamError);
     }
-  };
+  }, [teamError]);
 
   const sendInvitation = async () => {
     setError('');
+    setSuccessMessage('');
 
     if (!inviteEmail.trim()) {
       setError('Please enter an email address');
@@ -105,115 +75,92 @@ export default function TeamManagementModal({
       return;
     }
 
+    // Check if user is already a member
+    const existingMember = members.find(m => m.email.toLowerCase() === inviteEmail.toLowerCase());
+    if (existingMember) {
+      setError('This user is already a team member');
+      return;
+    }
+
     try {
       setIsInviting(true);
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
-
-      if (!token) {
-        throw new Error('No authentication token available');
-      }
-
-      const response = await fetch(`${API_ENDPOINT}/brands/${brandId}/invite`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      
+      const result = await sendInvitations([
+        {
           email: inviteEmail,
-          role: inviteRole,
-          scope: inviteScope
-        })
-      });
-
-      if (response.ok) {
-        setInviteEmail('');
-        setInviteRole('Editor');
-        setInviteScope('brand');
-        setShowInviteForm(false);
-        await fetchTeamMembers();
-      } else {
-        const errorData = await response.json();
-        const apiError = errorData.error?.message || errorData.message || 'Failed to send invitation';
-        
-        // Provide specific error messages
-        let userFriendlyMessage = apiError;
-        if (apiError.includes('already a team member')) {
-          userFriendlyMessage = 'This user is already a team member';
-        } else if (apiError.includes('pending invitation')) {
-          userFriendlyMessage = 'This user already has a pending invitation';
-        } else if (apiError.includes('admin')) {
-          userFriendlyMessage = 'Only admins can invite team members';
+          role: inviteRole
         }
+      ]);
+
+      if (result.success) {
+        setSuccessMessage(`Invitation sent to ${inviteEmail}`);
+        setInviteEmail('');
+        setInviteRole('member');
+        setShowInviteForm(false);
         
-        throw new Error(userFriendlyMessage);
+        // Refresh the member list after a short delay
+        setTimeout(() => {
+          refetch();
+        }, 1000);
+      } else if (result.errors && result.errors.length > 0) {
+        setError(result.errors[0].error);
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to send invitation');
+    } catch (err: any) {
+      console.error('Error sending invitation:', err);
+      setError(err.message || 'Failed to send invitation');
     } finally {
       setIsInviting(false);
     }
   };
 
-  const removeMember = async (userId: string) => {
-    if (!confirm('Are you sure you want to remove this team member?')) return;
+  const handleRemoveMember = async (userId: string, email: string) => {
+    // Don't allow removing yourself
+    if (userId === user?.id) {
+      setError("You cannot remove yourself from the organization");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to remove ${email} from the organization?`)) return;
 
     try {
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
-
-      if (!token) {
-        throw new Error('No authentication token available');
-      }
-
-      const response = await fetch(`${API_ENDPOINT}/brands/${brandId}/members/${userId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        await fetchTeamMembers();
-      }
-    } catch (error: any) {
-      console.error('Error removing team member:', error);
-      setError('Failed to remove team member. Please try again.');
+      setError('');
+      await removeMember(userId);
+      setSuccessMessage(`${email} has been removed from the organization`);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err: any) {
+      console.error('Error removing member:', err);
+      setError(err.message || 'Failed to remove team member');
     }
   };
 
-  const updateMemberRole = async (userId: string, newRole: 'Admin' | 'Editor' | 'Viewer') => {
+  const handleUpdateRole = async (userId: string, newRole: 'admin' | 'member', email: string) => {
+    // Don't allow changing your own role
+    if (userId === user?.id) {
+      setError("You cannot change your own role");
+      return;
+    }
+
     try {
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
-
-      if (!token) {
-        throw new Error('No authentication token available');
-      }
-
-      const response = await fetch(`${API_ENDPOINT}/brands/${brandId}/members/${userId}/role`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ role: newRole })
-      });
-
-      if (response.ok) {
-        await fetchTeamMembers();
-      }
-    } catch (error: any) {
-      console.error('Error updating member role:', error);
-      setError('Failed to update member role. Please try again.');
+      setError('');
+      await updateMemberRole(userId, newRole);
+      setSuccessMessage(`${email}'s role has been updated to ${newRole}`);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err: any) {
+      console.error('Error updating role:', err);
+      setError(err.message || 'Failed to update member role');
     }
   };
-
-  const isAdmin = currentUserRole === 'Admin';
 
   if (!isOpen) return null;
+
+  // Map Clerk roles to display roles
+  const getRoleDisplay = (role: 'admin' | 'member') => {
+    return role === 'admin' ? 'Admin' : 'Member';
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -228,7 +175,12 @@ export default function TeamManagementModal({
         <div className="relative w-full max-w-3xl bg-[#2A3142] border border-gray-700 rounded-2xl p-8 shadow-xl">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-white">Team Management - {brandName}</h2>
+            <div>
+              <h2 className="text-2xl font-bold text-white">Team Management</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                {organization?.name || brandName} Organization
+              </p>
+            </div>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-white transition-colors"
@@ -238,6 +190,19 @@ export default function TeamManagementModal({
               </svg>
             </button>
           </div>
+
+          {/* Success/Error Messages */}
+          {successMessage && (
+            <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg text-green-400 text-sm">
+              {successMessage}
+            </div>
+          )}
+          
+          {error && !showInviteForm && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {error}
+            </div>
+          )}
 
           {isLoading ? (
             <div className="text-center py-12">
@@ -277,43 +242,23 @@ export default function TeamManagementModal({
                       </div>
                       <select
                         value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value as 'Admin' | 'Editor' | 'Viewer')}
+                        onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member' | 'viewer')}
                         className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 bg-[#0F1117] text-white hover:border-gray-500"
                       >
-                        <option value="Editor">Editor</option>
-                        <option value="Admin">Admin</option>
-                        <option value="Viewer">Viewer</option>
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                        <option value="viewer">Viewer</option>
                       </select>
                     </div>
                     
-                    {/* Scope selector */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-400 mb-2">Access Level</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            value="brand"
-                            checked={inviteScope === 'brand'}
-                            onChange={(e) => setInviteScope('brand')}
-                            className="text-purple-600 focus:ring-purple-500"
-                          />
-                          <span className="text-white">This brand only</span>
-                        </label>
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            value="organization"
-                            checked={inviteScope === 'organization'}
-                            onChange={(e) => setInviteScope('organization')}
-                            className="text-purple-600 focus:ring-purple-500"
-                          />
-                          <span className="text-white">Entire organization</span>
-                        </label>
-                      </div>
+                    {/* Note about organization-wide access */}
+                    <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <p className="text-blue-300 text-sm">
+                        <strong>Note:</strong> Team members will have access to all brands within this organization.
+                      </p>
                     </div>
                     
-                    {error && (
+                    {error && showInviteForm && (
                       <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                         {error}
                       </div>
@@ -324,7 +269,7 @@ export default function TeamManagementModal({
                         onClick={() => {
                           setShowInviteForm(false);
                           setInviteEmail('');
-                          setInviteScope('brand');
+                          setInviteRole('member');
                           setError('');
                         }}
                         className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
@@ -333,10 +278,10 @@ export default function TeamManagementModal({
                       </button>
                       <button
                         onClick={sendInvitation}
-                        disabled={isInviting}
+                        disabled={isInviting || inviteTeamLoading}
                         className="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-white disabled:opacity-50 flex items-center space-x-2"
                       >
-                        {isInviting ? (
+                        {isInviting || inviteTeamLoading ? (
                           <>
                             <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -355,40 +300,52 @@ export default function TeamManagementModal({
                 {/* Member List */}
                 <div className="space-y-3">
                   {members.map((member) => (
-                    <div key={member.user_id} className="bg-[#1A1F2E] rounded-xl p-4 border border-gray-700">
+                    <div key={member.id} className="bg-[#1A1F2E] rounded-xl p-4 border border-gray-700">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center">
-                            <span className="text-white font-medium text-lg">
-                              {member.name ? member.name.charAt(0).toUpperCase() : member.email.charAt(0).toUpperCase()}
-                            </span>
+                          <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center overflow-hidden">
+                            {member.imageUrl ? (
+                              <img 
+                                src={member.imageUrl} 
+                                alt={member.firstName || member.email}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-white font-medium text-lg">
+                                {member.firstName?.charAt(0) || member.email.charAt(0).toUpperCase()}
+                              </span>
+                            )}
                           </div>
                           <div>
-                            <p className="text-white font-medium">{member.name || member.email}</p>
+                            <p className="text-white font-medium">
+                              {member.firstName && member.lastName 
+                                ? `${member.firstName} ${member.lastName}`
+                                : member.email}
+                            </p>
                             <p className="text-gray-400 text-sm">{member.email}</p>
                           </div>
                         </div>
                         
                         <div className="flex items-center space-x-4">
-                          {isAdmin ? (
+                          {isAdmin && member.userId !== user?.id ? (
                             <select
                               value={member.role}
-                              onChange={(e) => updateMemberRole(member.user_id, e.target.value as 'Admin' | 'Editor' | 'Viewer')}
+                              onChange={(e) => handleUpdateRole(member.userId, e.target.value as 'admin' | 'member', member.email)}
                               className="px-3 py-1 bg-gray-700 text-white rounded-lg text-sm border border-gray-600 hover:bg-gray-600"
                             >
-                              <option value="Admin">Admin</option>
-                              <option value="Editor">Editor</option>
-                              <option value="Viewer">Viewer</option>
+                              <option value="admin">Admin</option>
+                              <option value="member">Member</option>
                             </select>
                           ) : (
                             <span className="px-3 py-1 bg-gray-700 text-gray-300 rounded-lg text-sm">
-                              {member.role}
+                              {getRoleDisplay(member.role)}
+                              {member.userId === user?.id && " (You)"}
                             </span>
                           )}
                           
-                          {isAdmin && (
+                          {isAdmin && member.userId !== user?.id && (
                             <button
-                              onClick={() => removeMember(member.user_id)}
+                              onClick={() => handleRemoveMember(member.userId, member.email)}
                               className="text-gray-400 hover:text-red-400 transition-colors"
                             >
                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -403,35 +360,6 @@ export default function TeamManagementModal({
                 </div>
               </div>
 
-              {/* Pending Invitations */}
-              {pendingInvitations.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-4">Pending Invitations ({pendingInvitations.length})</h3>
-                  <div className="space-y-3">
-                    {pendingInvitations.map((invitation) => (
-                      <div key={invitation.invitation_id} className="bg-[#1A1F2E] rounded-xl p-4 border border-gray-700 opacity-75">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                              </svg>
-                            </div>
-                            <div>
-                              <p className="text-gray-300">{invitation.invited_email}</p>
-                              <p className="text-gray-500 text-sm">
-                                Invited by {invitation.invited_by} • {invitation.role}
-                              </p>
-                            </div>
-                          </div>
-                          <span className="text-yellow-400 text-sm">Pending</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Role Information */}
               <div className="mt-8 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
                 <div className="flex items-start space-x-3">
@@ -441,9 +369,9 @@ export default function TeamManagementModal({
                   <div>
                     <p className="text-blue-300 font-medium text-sm mb-1">Role Permissions</p>
                     <ul className="text-blue-400/80 text-sm space-y-1">
-                      <li><strong>Admin:</strong> Full access to manage brand, team, and creatives</li>
-                      <li><strong>Editor:</strong> Can upload and manage creatives, view reports</li>
-                      <li><strong>Viewer:</strong> Can view creatives and reports only</li>
+                      <li><strong>Admin:</strong> Full access to manage organization, brands, team, and creatives</li>
+                      <li><strong>Member:</strong> Can create brands, upload and manage creatives, view reports</li>
+                      <li><strong>Viewer:</strong> Can view creatives and reports only (coming soon)</li>
                     </ul>
                   </div>
                 </div>
