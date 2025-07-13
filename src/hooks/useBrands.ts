@@ -111,3 +111,33 @@ export function useCreateBrand() {
     },
   })
 }
+
+export function useDeleteBrand() {
+  const queryClient = useQueryClient()
+  const { organization } = useOrganization()
+  const supabase = useSupabaseClient()
+  
+  return useMutation({
+    mutationFn: async (brandId: string) => {
+      if (!organization) throw new Error('No organization')
+      
+      console.log('Deleting brand:', brandId)
+      
+      const { error } = await supabase
+        .from('brands')
+        .delete()
+        .eq('id', brandId)
+        .eq('clerk_org_id', organization.id)
+      
+      if (error) {
+        console.error('Supabase delete error:', error)
+        throw error
+      }
+      
+      console.log('Brand deleted successfully')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brands', organization?.id] })
+    },
+  })
+}

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useOrganizationList, useOrganization } from '@clerk/nextjs';
-import { useBrands, useCreateBrand } from '@/hooks/useBrands';
+import { useBrands, useCreateBrand, useDeleteBrand } from '@/hooks/useBrands';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
 import { Brand } from '@/hooks/useBrands';
 
@@ -21,11 +21,13 @@ export default function ModernBusinessCenter() {
   // Supabase hooks
   const { data: brands = [], isLoading: brandsLoading } = useBrands();
   const createBrand = useCreateBrand();
+  const deleteBrand = useDeleteBrand();
   
   // Local state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [brandToDelete, setBrandToDelete] = useState<Brand | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmationChecked, setDeleteConfirmationChecked] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [newBrandDescription, setNewBrandDescription] = useState('');
@@ -79,10 +81,10 @@ export default function ModernBusinessCenter() {
     
     try {
       setIsDeleting(true);
-      // TODO: Implement delete functionality with Supabase
-      console.log('Delete brand:', brandToDelete);
+      await deleteBrand.mutateAsync(brandToDelete.id);
       setShowDeleteModal(false);
       setBrandToDelete(null);
+      setDeleteConfirmationChecked(false);
     } catch (error) {
       console.error('Error deleting brand:', error);
       alert('Error deleting brand. Please try again.');
@@ -94,6 +96,7 @@ export default function ModernBusinessCenter() {
   const cancelDeleteBrand = () => {
     setShowDeleteModal(false);
     setBrandToDelete(null);
+    setDeleteConfirmationChecked(false);
   };
 
   const handleAddBrand = () => {
@@ -403,24 +406,60 @@ export default function ModernBusinessCenter() {
         {/* Delete Confirmation Modal */}
         {showDeleteModal && brandToDelete && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-[#2A3142] rounded-lg p-6 max-w-md w-full mx-4">
-              <h3 className="text-xl font-semibold mb-4">Delete Brand</h3>
+            <div className="bg-[#2A3142] rounded-lg p-8 max-w-lg w-full mx-4 border-2 border-red-600">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-semibold text-red-400">Delete Brand Permanently</h3>
+              </div>
+              
+              <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 mb-6">
+                <p className="text-red-300 font-medium mb-2">⚠️ This action will permanently delete:</p>
+                <ul className="text-gray-300 ml-6 space-y-1 list-disc">
+                  <li>The brand "{brandToDelete.name}"</li>
+                  <li>All campaigns associated with this brand</li>
+                  <li>All creative assets and compliance reports</li>
+                  <li>All brand guidelines and settings</li>
+                  <li>All team access and permissions</li>
+                </ul>
+              </div>
+              
               <p className="text-gray-400 mb-6">
-                Are you sure you want to delete "{brandToDelete.name}"? This action cannot be undone.
+                This action <span className="text-red-400 font-semibold">CANNOT be undone</span>. 
+                All data will be permanently removed from our servers.
               </p>
+              
+              <div className="mb-6">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirmationChecked}
+                    onChange={(e) => setDeleteConfirmationChecked(e.target.checked)}
+                    className="mt-1 w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                  />
+                  <span className="text-sm text-gray-300">
+                    I understand that I am permanently deleting this brand and all associated data, 
+                    including campaigns, assets, and reports. This action cannot be reversed.
+                  </span>
+                </label>
+              </div>
+              
               <div className="flex justify-end gap-4">
                 <button
                   onClick={cancelDeleteBrand}
-                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
+                  className="px-6 py-3 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmDeleteBrand}
-                  disabled={isDeleting}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
+                  disabled={isDeleting || !deleteConfirmationChecked}
+                  className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-900 disabled:text-gray-500 rounded-lg transition-colors font-medium disabled:cursor-not-allowed"
                 >
-                  {isDeleting ? 'Deleting...' : 'Delete'}
+                  {isDeleting ? 'Deleting...' : 'Delete Brand Permanently'}
                 </button>
               </div>
             </div>
