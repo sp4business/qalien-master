@@ -22,6 +22,7 @@ interface BrandConfig {
   industry: string;
   description?: string;
   website?: string;
+  phonetic_pronunciation?: string;
   brand_tone?: string;
   color_palette: string[];
   disclaimers_required: string[];
@@ -241,6 +242,7 @@ export default function ModernBrandOnboarding() {
         description: brandConfig.description || null,
         industry: brandConfig.industry || null,
         website: brandConfig.website || null,
+        phonetic_pronunciation: brandConfig.phonetic_pronunciation || null,
         // Visual Identity data (Step 3)
         logo_files: logoUrls, // Now includes all uploaded logo URLs
         color_palette: brandConfig.color_palette, // Color hex codes from Step 3
@@ -623,7 +625,7 @@ function CompanyInfoStep({ brandConfig, updateBrandConfig }: CompanyInfoStepProp
           </select>
         </div>
         
-        <div className="md:col-span-2 space-y-2">
+        <div className="space-y-2">
           <label className="block text-sm font-semibold text-gray-300">Website</label>
           <input
             type="url"
@@ -632,6 +634,20 @@ function CompanyInfoStep({ brandConfig, updateBrandConfig }: CompanyInfoStepProp
             className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500"
             placeholder="https://yourbrand.com"
           />
+        </div>
+        
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-gray-300">
+            Phonetic Pronunciation (Optional)
+          </label>
+          <input
+            type="text"
+            value={brandConfig.phonetic_pronunciation || ''}
+            onChange={(e) => updateBrandConfig({ phonetic_pronunciation: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500"
+            placeholder="e.g., loo-loo-lemon"
+          />
+          <p className="text-xs text-gray-500">How should your brand name be pronounced?</p>
         </div>
         
         <div className="md:col-span-2 space-y-2">
@@ -1184,6 +1200,12 @@ function ReviewStep({ brandConfig, files, onSubmit, isSubmitting, submitResult, 
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400">Website:</span>
                     <span className="text-white font-medium">{brandConfig.website}</span>
+                  </div>
+                )}
+                {brandConfig.phonetic_pronunciation && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Phonetic Pronunciation:</span>
+                    <span className="text-white font-medium">{brandConfig.phonetic_pronunciation}</span>
                   </div>
                 )}
               </div>

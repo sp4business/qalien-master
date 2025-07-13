@@ -6,7 +6,7 @@ interface Creative {
   creative_id: string;
   name: string;
   compliance_score: number;
-  status: 'Approved' | 'Warning' | 'Failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'Approved' | 'Warning' | 'Failed';
   upload_date: string;
   mime_type: string;
   thumbnail_url?: string;
@@ -23,11 +23,19 @@ export default function CreativeCard({ creative, onClick, onDelete }: CreativeCa
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Approved':
+      case 'completed':
+      case 'pass':
         return 'text-green-400';
       case 'Warning':
+      case 'warn':
         return 'text-yellow-400';
       case 'Failed':
+      case 'failed':
+      case 'fail':
         return 'text-red-400';
+      case 'pending':
+      case 'processing':
+        return 'text-purple-400';
       default:
         return 'text-gray-400';
     }
@@ -43,7 +51,7 @@ export default function CreativeCard({ creative, onClick, onDelete }: CreativeCa
     creative.thumbnail_url?.endsWith('.mp4') || 
     creative.thumbnail_url?.endsWith('.webm') || 
     creative.thumbnail_url?.endsWith('.mov');
-  const isProcessing = creative.compliance_score === 0;
+  const isProcessing = creative.status === 'pending' || creative.status === 'processing';
 
   return (
     <div 
@@ -142,8 +150,13 @@ export default function CreativeCard({ creative, onClick, onDelete }: CreativeCa
         </h3>
         
         <div className="flex items-center justify-between">
-          <span className={`text-sm ${isProcessing ? 'text-purple-400' : getStatusColor(creative.status)}`}>
-            {isProcessing ? 'Analysis Pending' : creative.status}
+          <span className={`text-sm ${getStatusColor(creative.status)}`}>
+            {isProcessing ? 'Analysis Pending' : 
+             creative.status === 'completed' ? 'Completed' :
+             creative.status === 'failed' ? 'Failed' :
+             creative.status === 'pending' ? 'Pending' :
+             creative.status === 'processing' ? 'Processing' :
+             creative.status}
           </span>
           <span className="text-xs text-gray-500">
             Uploaded {creative.upload_date}

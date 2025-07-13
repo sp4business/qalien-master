@@ -15,19 +15,22 @@ interface Creative {
   creative_id: string;
   name: string;
   compliance_score: number;
-  status: 'Approved' | 'Warning' | 'Failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'Approved' | 'Warning' | 'Failed';
   upload_date: string;
   mime_type: string;
   thumbnail_url?: string;
   frontend_report?: Array<{
-    category: string;
-    icon: string;
-    score: number;
-    status: 'pass' | 'warning' | 'fail';
-    feedback: string;
+    check?: string;
+    result?: string;
+    details?: string;
+    category?: string;
+    icon?: string;
+    score?: number;
+    status?: 'pass' | 'warning' | 'fail';
+    feedback?: string;
     suggestions?: string[];
   }>;
-  overall_status?: 'approved' | 'warning' | 'failed';
+  overall_status?: 'approved' | 'warning' | 'failed' | 'pass' | 'warn' | 'fail';
   analysis?: {
     executive_summary: string;
     details: {
@@ -38,6 +41,8 @@ interface Creative {
       layout_composition: { score: number; notes: string };
     };
   };
+  legend_results?: any;
+  raw_transcript_data?: any;
 }
 
 // Mock data for demo (will be replaced with real data later)
@@ -134,23 +139,34 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     } else if (assetsData && assetsData.length > 0) {
       // Convert assets to creative format (temporary until AI analysis is implemented)
       const loadedCreatives: Creative[] = assetsData.map(asset => {
-        const isProcessing = asset.status === 'pending';
+        const isProcessing = asset.status === 'pending' || asset.status === 'processing';
         const { data: { publicUrl } } = supabase.storage
           .from('campaign-assets')
           .getPublicUrl(asset.storage_path);
         console.log('Asset thumbnail URL:', publicUrl, 'Storage path:', asset.storage_path);
+        
+        // Calculate compliance score if we have frontend_report
+        let complianceScore = asset.compliance_score || 0;
+        if (!isProcessing && asset.frontend_report && Array.isArray(asset.frontend_report)) {
+          const totalChecks = asset.frontend_report.length;
+          const passedChecks = asset.frontend_report.filter((check: any) => 
+            check.result === 'pass' || check.status === 'pass'
+          ).length;
+          complianceScore = Math.round((passedChecks / totalChecks) * 100);
+        }
+        
         return {
           creative_id: asset.id,
           name: asset.asset_name || 'Untitled Asset',
-          compliance_score: asset.compliance_score || 0,
-          status: asset.status === 'approved' ? 'Approved' : 
-                 asset.status === 'warning' ? 'Warning' : 
-                 asset.status === 'failed' ? 'Failed' : 'Approved',
+          compliance_score: complianceScore,
+          status: asset.status, // Keep raw status for processing check
           upload_date: new Date(asset.created_at).toLocaleDateString(),
           mime_type: asset.mime_type || 'image/jpeg',
           thumbnail_url: publicUrl,
           frontend_report: asset.frontend_report || undefined,
           overall_status: asset.overall_status || undefined,
+          legend_results: asset.legend_results || undefined,
+          raw_transcript_data: asset.raw_transcript_data || undefined,
           analysis: {
             executive_summary: isProcessing ? 'Processing...' : 'Analysis complete',
             details: {

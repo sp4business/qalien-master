@@ -14,6 +14,7 @@ interface BrandConfig {
   industry: string;
   description?: string;
   website?: string;
+  phonetic_pronunciation?: string;
   brand_tone?: string;
   color_palette: string[];
   disclaimers_required: string[];
@@ -187,6 +188,7 @@ export default function BrandOnboardingWizard() {
           industry: brandConfig.industry || 'Other',
           description: brandConfig.description || '',
           website: brandConfig.website || '',
+          phonetic_pronunciation: brandConfig.phonetic_pronunciation || '',
           selected_colors: visualIdentityMode === 'auto' && pdfAnalysis.colors
             ? brandConfig.color_palette.map(idx => pdfAnalysis.colors[parseInt(idx)]).filter(Boolean)
             : brandConfig.color_palette.filter(c => c.startsWith('#')).map(hex => ({ hex })),
@@ -266,6 +268,7 @@ export default function BrandOnboardingWizard() {
           industry: brandConfig.industry,
           description: brandConfig.description,
           website: brandConfig.website,
+          phonetic_pronunciation: brandConfig.phonetic_pronunciation,
           selected_colors: visualIdentityMode === 'auto' && pdfAnalysis.colors
             ? brandConfig.color_palette.map(idx => pdfAnalysis.colors[parseInt(idx)]).filter(Boolean)
             : brandConfig.color_palette.filter(c => c.startsWith('#')).map(hex => ({ hex })),
@@ -662,7 +665,21 @@ function CompanyInfoStep({ brandConfig, updateBrandConfig }: CompanyInfoStepProp
           </select>
         </div>
         
-        <div className="md:col-span-2 space-y-2">
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-gray-300">
+            Phonetic Pronunciation
+          </label>
+          <input
+            type="text"
+            value={brandConfig.phonetic_pronunciation || ''}
+            onChange={(e) => updateBrandConfig({ phonetic_pronunciation: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 bg-[#1A1F2E] text-white placeholder-gray-500 hover:border-gray-500"
+            placeholder="e.g., NYE-key for Nike"
+          />
+          <p className="text-xs text-gray-500">How should your brand name be pronounced?</p>
+        </div>
+        
+        <div className="space-y-2">
           <label className="block text-sm font-semibold text-gray-300">Website</label>
           <input
             type="url"
@@ -2024,6 +2041,12 @@ function ReviewStep({ brandConfig, files, onSubmit, isSubmitting, submitResult, 
               <p className="text-sm text-gray-500 mb-1">Industry</p>
               <p className="font-medium text-white">{brandConfig.industry || 'Not specified'}</p>
             </div>
+            {brandConfig.phonetic_pronunciation && (
+              <div>
+                <p className="text-sm text-gray-500 mb-1">Phonetic Pronunciation</p>
+                <p className="font-medium text-white">{brandConfig.phonetic_pronunciation}</p>
+              </div>
+            )}
             {brandConfig.website && (
               <div className="md:col-span-2">
                 <p className="text-sm text-gray-500 mb-1">Website</p>

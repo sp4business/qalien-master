@@ -9,6 +9,7 @@ export interface Brand {
   description: string | null
   industry: string | null
   website: string | null
+  phonetic_pronunciation: string | null
   status: 'active' | 'archived'
   logo_files: string[]
   color_palette: string[]
@@ -71,6 +72,7 @@ export function useCreateBrand() {
       description?: string
       industry?: string
       website?: string
+      phonetic_pronunciation?: string
       logo_files?: string[]
       color_palette?: string[]
       tone_keywords?: string[]

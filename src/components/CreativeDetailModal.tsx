@@ -4,11 +4,14 @@ import { useState, useEffect } from 'react';
 import ComplianceScoreBar from './ComplianceScoreBar';
 
 interface ComplianceCategory {
-  category: string;
-  icon: string;
-  score: number;
-  status: 'pass' | 'warning' | 'fail';
-  feedback: string;
+  category?: string;
+  check?: string;
+  result?: 'pass' | 'warn' | 'fail';
+  details?: string;
+  icon?: string;
+  score?: number;
+  status?: 'pass' | 'warning' | 'fail';
+  feedback?: string;
   suggestions?: string[];
 }
 
@@ -16,11 +19,11 @@ interface Creative {
   creative_id: string;
   name: string;
   compliance_score: number;
-  status: 'Approved' | 'Warning' | 'Failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   upload_date: string;
   mime_type: string;
   frontend_report?: ComplianceCategory[];
-  overall_status?: 'approved' | 'warning' | 'failed';
+  overall_status?: 'approved' | 'warning' | 'failed' | 'pass' | 'warn' | 'fail';
   analysis?: {
     executive_summary: string;
     details: {
@@ -31,6 +34,8 @@ interface Creative {
       layout_composition: { score: number; notes: string };
     };
   };
+  legend_results?: any;
+  raw_transcript_data?: any;
 }
 
 interface CreativeDetailModalProps {
@@ -162,13 +167,22 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
     const statusConfig = {
       Approved: { bg: 'bg-green-500/20', text: 'text-green-400', icon: '✓' },
       Warning: { bg: 'bg-yellow-500/20', text: 'text-yellow-400', icon: '⚠' },
-      Failed: { bg: 'bg-red-500/20', text: 'text-red-400', icon: '✗' }
+      Failed: { bg: 'bg-red-500/20', text: 'text-red-400', icon: '✗' },
+      completed: { bg: 'bg-green-500/20', text: 'text-green-400', icon: '✓' },
+      failed: { bg: 'bg-red-500/20', text: 'text-red-400', icon: '✗' },
+      pending: { bg: 'bg-gray-500/20', text: 'text-gray-400', icon: '⏳' },
+      processing: { bg: 'bg-purple-500/20', text: 'text-purple-400', icon: '⚙️' }
     };
-    const config = statusConfig[creative.status];
+    const config = statusConfig[creative.status] || { bg: 'bg-gray-500/20', text: 'text-gray-400', icon: '?' };
+    const displayStatus = creative.status === 'completed' ? 'Completed' : 
+                         creative.status === 'failed' ? 'Failed' :
+                         creative.status === 'pending' ? 'Pending' :
+                         creative.status === 'processing' ? 'Processing' :
+                         creative.status;
     return (
       <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-full text-sm ${config.bg} ${config.text}`}>
         <span>{config.icon}</span>
-        <span>{creative.status}</span>
+        <span>{displayStatus}</span>
       </span>
     );
   };
@@ -260,25 +274,40 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
                 <h3 className="text-lg font-medium text-white mb-6">Detailed Analysis</h3>
                 <div className="space-y-4">
                   {frontendReport && frontendReport.length > 0 ? (
-                    frontendReport.map((category) => {
-                      const isExpanded = expandedSections.has(category.category);
+                    frontendReport.map((item, idx) => {
+                      // Support both old and new format
+                      const categoryName = item.category || item.check || 'Unknown Check';
+                      const isExpanded = expandedSections.has(categoryName);
+                      const itemStatus = item.status || item.result || 'pass';
+                      
+                      // Map status values
+                      const statusDisplay = itemStatus === 'warn' ? 'warning' : itemStatus;
+                      
+                      // Get icon
+                      const icon = item.icon || officialCategoryIcons[categoryName] || 
+                        (categoryName === 'Logo Usage' ? '🏷️' :
+                         categoryName === 'Color Palette' ? '🎨' :
+                         categoryName === 'Content Type' ? '📱' :
+                         categoryName === 'Brand Vocabulary' ? '📝' : '📋');
                       
                       return (
-                        <div key={category.category} className="bg-[#0F1117] rounded-lg overflow-hidden">
+                        <div key={categoryName + idx} className="bg-[#0F1117] rounded-lg overflow-hidden">
                           <button
-                            onClick={() => toggleSection(category.category)}
+                            onClick={() => toggleSection(categoryName)}
                             className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-800/50 transition-colors"
                           >
                             <div className="flex items-center space-x-3">
-                              <span className="text-2xl">{category.icon || officialCategoryIcons[category.category] || '📋'}</span>
-                              <span className="font-medium text-white">{category.category}</span>
-                              <ComplianceScoreBar score={category.score || 0} compact />
+                              <span className="text-2xl">{icon}</span>
+                              <span className="font-medium text-white">{categoryName}</span>
+                              {item.score !== undefined && (
+                                <ComplianceScoreBar score={item.score} compact />
+                              )}
                               <span className={`text-xs px-2 py-1 rounded-full ${
-                                category.status === 'pass' ? 'bg-green-500/20 text-green-400' :
-                                category.status === 'warning' ? 'bg-yellow-500/20 text-yellow-400' :
+                                statusDisplay === 'pass' ? 'bg-green-500/20 text-green-400' :
+                                statusDisplay === 'warning' ? 'bg-yellow-500/20 text-yellow-400' :
                                 'bg-red-500/20 text-red-400'
                               }`}>
-                                {category.status.toUpperCase()}
+                                {statusDisplay.toUpperCase()}
                               </span>
                             </div>
                             <svg 
@@ -294,13 +323,13 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
                           {isExpanded && (
                             <div className="px-6 pb-4 border-t border-gray-800">
                               <p className="text-gray-300 mt-4 leading-relaxed">
-                                {category.feedback}
+                                {item.feedback || item.details || 'No additional details available.'}
                               </p>
-                              {category.suggestions && category.suggestions.length > 0 && (
+                              {item.suggestions && item.suggestions.length > 0 && (
                                 <div className="mt-4">
                                   <p className="text-sm font-medium text-purple-400 mb-2">Suggestions for improvement:</p>
                                   <ul className="list-disc list-inside space-y-1">
-                                    {category.suggestions.map((suggestion, index) => (
+                                    {item.suggestions.map((suggestion, index) => (
                                       <li key={index} className="text-sm text-gray-400">
                                         {suggestion}
                                       </li>
