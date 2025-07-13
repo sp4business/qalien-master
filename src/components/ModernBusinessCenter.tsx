@@ -13,8 +13,9 @@ export default function ModernBusinessCenter() {
   const orgIdFromUrl = searchParams.get('org');
   
   // Clerk hooks - fetch user's organizations
-  const { userMemberships, isLoaded: orgsLoaded, setActive } = useOrganizationList({
+  const { userMemberships, isLoaded: orgsLoaded, setActive, revalidate, userInvitations } = useOrganizationList({
     userMemberships: true,
+    userInvitations: true,
   });
   const { organization, isLoaded: currentOrgLoaded } = useOrganization();
   
@@ -32,6 +33,8 @@ export default function ModernBusinessCenter() {
   const [newBrandName, setNewBrandName] = useState('');
   const [newBrandDescription, setNewBrandDescription] = useState('');
   const [newBrandIndustry, setNewBrandIndustry] = useState('');
+  const [hasRevalidated, setHasRevalidated] = useState(false);
+  const [hasCheckedInvitations, setHasCheckedInvitations] = useState(false);
 
   // Switch organization when URL changes
   useEffect(() => {
@@ -46,21 +49,63 @@ export default function ModernBusinessCenter() {
     }
   }, [orgIdFromUrl, orgsLoaded, userMemberships, organization, setActive]);
 
-  // Debug logging
+  // Debug logging and revalidation for new invitations
   useEffect(() => {
     try {
       console.log('ModernBusinessCenter Debug:', {
         orgsLoaded,
         userMembershipsCount: userMemberships?.data?.length,
+        userInvitationsCount: userInvitations?.data?.length,
         currentOrg: organization,
         orgIdFromUrl,
         brandsCount: brands.length,
         setActiveExists: !!setActive
       });
+
+      // Check if we came from an invitation (check for referrer or URL params)
+      const urlParams = new URLSearchParams(window.location.search);
+      const fromInvite = urlParams.get('from_invite') === 'true' || 
+                        document.referrer.includes('accept-org-invite');
+      
+      // Revalidate organization list if we haven't already and came from invitation
+      if (orgsLoaded && !hasRevalidated && fromInvite && revalidate) {
+        console.log('Revalidating organization list after invitation...');
+        revalidate().then(() => {
+          console.log('Organization list revalidated');
+          setHasRevalidated(true);
+        });
+      }
     } catch (error) {
       console.error('Debug logging error:', error);
     }
-  }, [orgsLoaded, userMemberships, organization, orgIdFromUrl, brands]);
+  }, [orgsLoaded, userMemberships, userInvitations, organization, orgIdFromUrl, brands, hasRevalidated, revalidate]);
+
+  // Check for pending invitations on first load
+  useEffect(() => {
+    if (!orgsLoaded || !userInvitations || hasCheckedInvitations) return;
+
+    const checkPendingInvitations = async () => {
+      if (userInvitations.data && userInvitations.data.length > 0) {
+        console.log('Found pending invitations in BusinessCenter:', userInvitations.data.length);
+        setHasCheckedInvitations(true);
+        
+        // Show a message to the user
+        const pendingOrg = userInvitations.data[0].publicOrganizationData.name;
+        if (confirm(`You have a pending invitation to join "${pendingOrg}". Would you like to accept it now?`)) {
+          try {
+            await userInvitations.data[0].accept();
+            console.log('Invitation accepted from BusinessCenter');
+            window.location.reload();
+          } catch (error) {
+            console.error('Error accepting invitation:', error);
+          }
+        }
+      }
+      setHasCheckedInvitations(true);
+    };
+
+    checkPendingInvitations();
+  }, [orgsLoaded, userInvitations, hasCheckedInvitations]);
 
   const handleOrganizationClick = (membership: any) => {
     router.push(`/?org=${membership.organization.id}`);
@@ -214,6 +259,21 @@ export default function ModernBusinessCenter() {
                     ← Back to Organizations
                   </button>
                 </div>
+              )}
+              {!orgIdFromUrl && revalidate && (
+                <button 
+                  onClick={() => {
+                    console.log('Manually refreshing organizations...');
+                    revalidate();
+                  }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-2"
+                  title="Refresh organizations list"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
               )}
             </div>
 
@@ -373,13 +433,33 @@ export default function ModernBusinessCenter() {
                   </svg>
                 </div>
                 <h3 className="text-xl font-medium mb-2">No Organizations Yet</h3>
-                <p className="text-gray-400 mb-6">Create your first organization to get started</p>
-                <button 
-                  onClick={() => window.open('https://dashboard.clerk.com', '_blank')}
-                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                >
-                  Create Organization in Clerk
-                </button>
+                <p className="text-gray-400 mb-6">
+                  {document.referrer.includes('accept-org-invite') 
+                    ? "If you just accepted an invitation, click refresh to see your organization"
+                    : "Create your first organization to get started"}
+                </p>
+                <div className="flex items-center justify-center gap-4">
+                  {revalidate && (
+                    <button 
+                      onClick={() => {
+                        console.log('Manually refreshing organizations...');
+                        revalidate();
+                      }}
+                      className="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refresh Organizations
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => window.open('https://dashboard.clerk.com', '_blank')}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                  >
+                    Create Organization in Clerk
+                  </button>
+                </div>
               </div>
             )}
 

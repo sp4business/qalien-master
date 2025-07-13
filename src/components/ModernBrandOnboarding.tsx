@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useOrganization, useUser } from '@clerk/nextjs';
 import { useCreateBrand } from '@/hooks/useBrands';
 import { useSupabaseClient, supabase as supabaseAnon } from '@/lib/supabase';
+import ModernInviteTeamStep, { TeamMember } from './ModernInviteTeamStep';
+import { useInviteTeam } from '@/hooks/useInviteTeam';
 
 // Keep the same enum structure from original
 enum OnboardingStep {
@@ -52,6 +54,7 @@ export default function ModernBrandOnboarding() {
   const { organization } = useOrganization();
   const { user } = useUser();
   const createBrand = useCreateBrand();
+  const inviteTeam = useInviteTeam();
   const supabase = useSupabaseClient();
   
   const [currentStep, setCurrentStep] = useState(OnboardingStep.COMPANY_INFO);
@@ -75,6 +78,8 @@ export default function ModernBrandOnboarding() {
       required: []
     }
   });
+  
+  const [pendingInvites, setPendingInvites] = useState<TeamMember[]>([]);
 
   const [files, setFiles] = useState<{
     guidelines?: FileUpload;
@@ -328,6 +333,46 @@ export default function ModernBrandOnboarding() {
         console.log('Golden set records created successfully');
       }
       
+      // Send team invitations if any
+      if (pendingInvites.length > 0 && organization) {
+        console.log(`Sending ${pendingInvites.length} team invitations...`);
+        setUploadProgress(`Sending ${pendingInvites.length} team invitation${pendingInvites.length > 1 ? 's' : ''}...`);
+        
+        try {
+          const inviteResult = await inviteTeam.mutateAsync({
+            organizationId: organization.id,
+            organizationName: organization.name,
+            invitations: pendingInvites.map(invite => ({
+              email: invite.email,
+              role: invite.role
+            }))
+          });
+          
+          console.log('Invitation results:', inviteResult);
+          
+          // Check if there were any errors
+          if (inviteResult.errors && inviteResult.errors.length > 0) {
+            console.warn('Some invitations failed:', inviteResult.errors);
+          }
+          
+          // Show success message with details
+          const successCount = inviteResult.results?.length || 0;
+          const errorCount = inviteResult.errors?.length || 0;
+          
+          if (successCount > 0) {
+            console.log(`Successfully sent ${successCount} invitation(s)`);
+          }
+          
+          if (errorCount > 0) {
+            console.warn(`Failed to send ${errorCount} invitation(s)`);
+          }
+        } catch (inviteError) {
+          // Don't fail the entire brand creation if invitations fail
+          console.error('Error sending invitations:', inviteError);
+          // We could show a warning here but continue with success
+        }
+      }
+      
       setSubmitResult({ success: true });
       setRedirectCountdown(5);
     } catch (error: any) {
@@ -461,37 +506,11 @@ export default function ModernBrandOnboarding() {
         )}
         
         {currentStep === OnboardingStep.INVITE_TEAM && (
-          <div className="space-y-8">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-400 to-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Invite Your Team</h2>
-              <p className="text-gray-400">You can invite team members after creating the brand</p>
-            </div>
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6">
-              <p className="text-blue-300 text-sm mb-4">
-                Team invitations will be available after you finalize the brand creation.
-                You'll be able to invite team members with different roles:
-              </p>
-              <ul className="space-y-2 text-sm text-gray-300">
-                <li className="flex items-start space-x-2">
-                  <span className="text-purple-400 mt-0.5">•</span>
-                  <span><strong>Admin:</strong> Full brand management capabilities</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <span className="text-purple-400 mt-0.5">•</span>
-                  <span><strong>Editor:</strong> Can upload and manage creatives</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <span className="text-purple-400 mt-0.5">•</span>
-                  <span><strong>Viewer:</strong> Read-only access to brand content</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+          <ModernInviteTeamStep 
+            brandName={brandConfig.brand_name}
+            pendingInvites={pendingInvites}
+            setPendingInvites={setPendingInvites}
+          />
         )}
         
         {currentStep === OnboardingStep.REVIEW && (

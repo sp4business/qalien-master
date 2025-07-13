@@ -370,3 +370,14 @@ entrypoint = "./functions/process-new-creative/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/process-new-creative/*.html" ]
+
+[functions.invite-team-members]
+enabled = true
+verify_jwt = true
+import_map = "./functions/invite-team-members/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/invite-team-members/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/invite-team-members/*.html" ]

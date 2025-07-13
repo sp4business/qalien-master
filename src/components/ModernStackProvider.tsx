@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import { clerkConfig } from '@/lib/clerk'
 import { ToastProvider } from '@/components/ui/ToastContainer'
+import InvitationProcessor from '@/components/InvitationProcessor'
 
 interface ModernStackProviderProps {
   children: React.ReactNode
@@ -32,6 +33,7 @@ export default function ModernStackProvider({ children }: ModernStackProviderPro
     >
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
+          <InvitationProcessor />
           {children}
         </ToastProvider>
       </QueryClientProvider>

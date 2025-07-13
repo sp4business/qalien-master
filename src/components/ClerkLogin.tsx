@@ -1,14 +1,63 @@
 'use client';
 
 import { SignIn, SignUp } from '@clerk/nextjs';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function ClerkLogin() {
-  const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get('redirect') || '/';
+  
+  // Determine initial mode based on the current path
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const initialIsSignUp = pathname.includes('sign-up');
+  const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
+  
+  // Check for invitation URL in sessionStorage or query params
+  const invitationReturnUrl = typeof window !== 'undefined' 
+    ? sessionStorage.getItem('invitation_return_url') 
+    : null;
+  
+  // Check if we have invitation parameters
+  const hasInvitationTicket = searchParams.get('__clerk_ticket') !== null;
+  const invitationTicket = searchParams.get('__clerk_ticket');
+  const invitationStatus = searchParams.get('__clerk_status');
+  
+  // Build redirect URL with invitation parameters preserved
+  let baseRedirectUrl = searchParams.get('redirect_url') || 
+                       searchParams.get('redirect') || 
+                       invitationReturnUrl || 
+                       '/';
+  
+  // If we have invitation parameters, preserve them through the OAuth flow
+  let redirectUrl = baseRedirectUrl;
+  if (hasInvitationTicket && invitationTicket) {
+    const params = new URLSearchParams();
+    params.set('__clerk_ticket', invitationTicket);
+    if (invitationStatus) {
+      params.set('__clerk_status', invitationStatus);
+    }
+    // If redirecting to home, redirect to accept-org-invite instead
+    redirectUrl = baseRedirectUrl === '/' 
+      ? `/accept-org-invite?${params.toString()}`
+      : `${baseRedirectUrl}${baseRedirectUrl.includes('?') ? '&' : '?'}${params.toString()}`;
+  }
+  
+  // Store invitation parameters in sessionStorage for OAuth flow
+  useEffect(() => {
+    if (hasInvitationTicket && invitationTicket) {
+      sessionStorage.setItem('clerk_invitation_params', JSON.stringify({
+        ticket: invitationTicket,
+        status: invitationStatus,
+        timestamp: Date.now()
+      }));
+    }
+    
+    // Clear old invitation URL from sessionStorage
+    if (invitationReturnUrl) {
+      sessionStorage.removeItem('invitation_return_url');
+    }
+  }, [hasInvitationTicket, invitationTicket, invitationStatus, invitationReturnUrl]);
 
   return (
     <div className="min-h-screen bg-[#0F1117] flex items-center justify-center p-4">
@@ -22,6 +71,15 @@ export default function ClerkLogin() {
             Brand Compliance Platform
           </p>
         </div>
+        
+        {/* Invitation Notice */}
+        {hasInvitationTicket && (
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <p className="text-sm text-blue-300 text-center">
+              🎉 You've been invited to join an organization! {isSignUp ? 'Create your account' : 'Sign in'} to accept.
+            </p>
+          </div>
+        )}
 
         {/* Auth Mode Toggle */}
         <div className="flex bg-[#1A1D29] rounded-lg p-1">
