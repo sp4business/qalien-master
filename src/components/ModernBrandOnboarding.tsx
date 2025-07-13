@@ -393,14 +393,24 @@ export default function ModernBrandOnboarding() {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (redirectCountdown === 0 && !skipAutoRedirect) {
-      // Redirect to Business Center
-      router.push('/');
+      // Redirect to Business Center with organization to show brands
+      const orgParam = orgId || organization?.id;
+      if (orgParam) {
+        router.push(`/?org=${orgParam}`);
+      } else {
+        router.push('/');
+      }
     }
   }, [redirectCountdown, skipAutoRedirect, router]);
 
   const handleGoNow = () => {
     setRedirectCountdown(null);
-    router.push('/');
+    const orgParam = orgId || organization?.id;
+    if (orgParam) {
+      router.push(`/?org=${orgParam}`);
+    } else {
+      router.push('/');
+    }
   };
 
   const handleSkipRedirect = () => {
