@@ -268,8 +268,11 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
               return filtered;
             });
           } else {
-            // For INSERT and UPDATE, refresh the full list
-            await fetchAssets();
+            // For INSERT and UPDATE, refresh the full list with a small delay to ensure data is committed
+            // This helps avoid race conditions where we fetch before the transaction completes
+            setTimeout(async () => {
+              await fetchAssets();
+            }, 500);
           }
         }
       )
@@ -282,6 +285,41 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
       supabase.removeChannel(channel);
     };
   }, [campaignId, supabase]);
+
+  // Poll for updates on processing assets
+  useEffect(() => {
+    if (!campaignId) return;
+
+    // Check if there are any processing assets
+    const hasProcessingAssets = creatives.some(c => c.status === 'processing' || c.status === 'pending');
+    
+    if (!hasProcessingAssets) {
+      console.log('No processing assets, skipping polling');
+      return;
+    }
+
+    console.log('Starting polling for processing assets');
+    
+    // Poll every 3 seconds for processing assets
+    const interval = setInterval(async () => {
+      // Check if still have processing assets
+      const stillProcessing = creatives.some(c => c.status === 'processing' || c.status === 'pending');
+      
+      if (!stillProcessing) {
+        console.log('No more processing assets, stopping polling');
+        clearInterval(interval);
+        return;
+      }
+      
+      console.log('Polling for asset updates...');
+      await fetchAssets();
+    }, 3000);
+
+    return () => {
+      console.log('Cleaning up polling interval');
+      clearInterval(interval);
+    };
+  }, [campaignId, creatives, supabase]);
 
   const handleCreativeClick = (creative: Creative) => {
     setSelectedCreative(creative);
