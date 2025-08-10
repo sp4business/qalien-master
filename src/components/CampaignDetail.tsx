@@ -125,8 +125,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [creativeToDelete, setCreativeToDelete] = useState<Creative | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [failedAssets, setFailedAssets] = useState<Creative[]>([]);
-  const [isRetrying, setIsRetrying] = useState(false);
 
   // Function to fetch assets
   const fetchAssets = async () => {
@@ -182,16 +180,13 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
         };
       });
       
-      // Separate failed assets
-      const failed = loadedCreatives.filter(c => c.status === 'failed');
-      const active = loadedCreatives.filter(c => c.status !== 'failed');
+      // Filter out failed assets completely - we don't show them
+      const activeCreatives = loadedCreatives.filter(c => c.status !== 'failed');
       
-      setCreatives(active);
-      setFailedAssets(failed);
+      setCreatives(activeCreatives);
     } else {
       // No assets found, clear the mock data
       setCreatives([]);
-      setFailedAssets([]);
     }
   };
 
@@ -387,79 +382,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     } finally {
       setIsDeleting(false);
       setCreativeToDelete(null);
-    }
-  };
-
-  const handleRetryFailed = async () => {
-    if (failedAssets.length === 0) return;
-    
-    setIsRetrying(true);
-    try {
-      // Use the campaign-level retry function for efficiency
-      const { data, error } = await supabase.rpc('retry_all_failed_assets', {
-        p_campaign_id: campaignId
-      });
-      
-      if (error) {
-        console.error('Failed to retry assets:', error);
-        toast({
-          title: 'Retry failed',
-          description: error.message || 'Unable to retry failed assets. Please try again.',
-          variant: 'error'
-        });
-        return;
-      }
-      
-      // Parse the response
-      const result = data as {
-        success: boolean;
-        retried_count: number;
-        error_count: number;
-        total_failed: number;
-        details?: any[];
-      };
-      
-      console.log('Retry result:', result);
-      
-      if (result.success && result.retried_count > 0) {
-        toast({
-          title: 'Retry initiated',
-          description: `Successfully requeued ${result.retried_count} of ${result.total_failed} failed assets for processing.`,
-          variant: 'success'
-        });
-        
-        // Clear failed assets from UI immediately for better UX
-        setFailedAssets([]);
-        
-        // Refresh assets list after a short delay
-        setTimeout(async () => {
-          await fetchAssets();
-        }, 1000);
-      } else if (result.error_count > 0) {
-        toast({
-          title: 'Partial retry',
-          description: `Requeued ${result.retried_count} assets. ${result.error_count} could not be retried.`,
-          variant: 'warning'
-        });
-        
-        // Still refresh to update UI
-        await fetchAssets();
-      } else {
-        toast({
-          title: 'Retry failed',
-          description: 'No assets could be retried. They may already be processing.',
-          variant: 'error'
-        });
-      }
-    } catch (error) {
-      console.error('Error retrying failed assets:', error);
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to retry assets',
-        variant: 'error'
-      });
-    } finally {
-      setIsRetrying(false);
     }
   };
 
@@ -856,54 +778,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
           </div>
         )}
       </div>
-      
-      {/* Failed Assets Section */}
-      {failedAssets.length > 0 && (
-        <div className="px-8 pb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-semibold text-red-400">Failed Assets</h2>
-            <button
-              onClick={handleRetryFailed}
-              disabled={isRetrying}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
-            >
-              {isRetrying ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Retrying...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <span>Retry All Failed</span>
-                </>
-              )}
-            </button>
-          </div>
-          
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6">
-            <p className="text-red-300 text-sm">
-              These assets failed to process. This usually happens due to temporary API issues. Click "Retry All Failed" to reprocess them.
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {failedAssets.map((creative) => (
-              <CreativeCard
-                key={creative.creative_id}
-                creative={creative}
-                onClick={() => handleCreativeClick(creative)}
-                onDelete={handleDeleteClick}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Creative Detail Modal */}
       {selectedCreative && (
