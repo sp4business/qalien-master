@@ -283,16 +283,37 @@ export async function processCreativeAsset(assetId: string) {
           
           // Create frame analyses from Gemini results for backward compatibility
           // This is a simplified representation since Gemini analyzes the video holistically
-          // Use Gemini's UGC classification
-          ugcVotes.total_frames = 1
-          if (geminiResults.ugc_classification?.is_ugc === true) {
-            ugcVotes.ugc_frames = 1
-            ugcVotes.produced_frames = 0
-            ugcVotes.confidence_scores.push(geminiResults.ugc_classification?.confidence || 0.9)
-          } else {
-            ugcVotes.ugc_frames = 0
-            ugcVotes.produced_frames = 1
-            ugcVotes.confidence_scores.push(1 - (geminiResults.ugc_classification?.confidence || 0.1))
+          // Use new content type analysis if available
+          if (geminiResults.content_type_analysis) {
+            console.log('📱 Using new content_type_analysis format')
+            ugcVotes.total_frames = 1
+            if (geminiResults.content_type_analysis.classification === 'UGC') {
+              ugcVotes.ugc_frames = 1
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            } else if (geminiResults.content_type_analysis.classification === 'Branded') {
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 1
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            } else if (geminiResults.content_type_analysis.classification === 'Non-Marketing') {
+              // Non-marketing content - neither UGC nor branded marketing
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            }
+          } else if (geminiResults.ugc_classification) {
+            // Fallback to old format
+            console.log('📱 Using legacy ugc_classification format')
+            ugcVotes.total_frames = 1
+            if (geminiResults.ugc_classification?.is_ugc === true) {
+              ugcVotes.ugc_frames = 1
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.ugc_classification?.confidence || 0.9)
+            } else {
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 1
+              ugcVotes.confidence_scores.push(1 - (geminiResults.ugc_classification?.confidence || 0.1))
+            }
           }
         } catch (videoError) {
           console.error('Video analysis failed:', videoError)
@@ -318,14 +339,28 @@ export async function processCreativeAsset(assetId: string) {
       ugcVotes.confidence_scores.push(calculateUgcScore(analysis.ugc_indicators))
     }
 
-    // Calculate creative type based on Gemini analysis or UGC votes
-    const creativeType = geminiResults?.ugc_classification?.is_ugc === true ? 'UGC' : 
-                        geminiResults?.ugc_classification?.is_ugc === false ? 'Produced' :
-                        (ugcVotes.ugc_frames / ugcVotes.total_frames > 0.5 ? 'UGC' : 'Produced')
-    const avgConfidence = geminiResults?.ugc_classification?.confidence || 
-                         (ugcVotes.confidence_scores.length > 0 ? 
-                          ugcVotes.confidence_scores.reduce((a, b) => a + b, 0) / ugcVotes.confidence_scores.length :
-                          0.5)
+    // Calculate creative type based on new content type analysis or legacy UGC votes
+    let creativeType = 'Produced' // default
+    let avgConfidence = 0.5 // default
+    
+    if (geminiResults?.content_type_analysis) {
+      // Use new content type classification
+      creativeType = geminiResults.content_type_analysis.classification
+      avgConfidence = geminiResults.content_type_analysis.confidence || 0.9
+      console.log('📱 CONTENT TYPE: Using new classification:', creativeType, 'with confidence:', avgConfidence)
+    } else if (geminiResults?.ugc_classification) {
+      // Fallback to legacy format
+      creativeType = geminiResults.ugc_classification.is_ugc === true ? 'UGC' : 'Branded'
+      avgConfidence = geminiResults.ugc_classification.confidence || 0.9
+      console.log('📱 CONTENT TYPE: Using legacy classification:', creativeType)
+    } else {
+      // Final fallback to vote-based determination
+      creativeType = (ugcVotes.ugc_frames / ugcVotes.total_frames > 0.5 ? 'UGC' : 'Branded')
+      avgConfidence = ugcVotes.confidence_scores.length > 0 ? 
+                     ugcVotes.confidence_scores.reduce((a, b) => a + b, 0) / ugcVotes.confidence_scores.length :
+                     0.5
+      console.log('📱 CONTENT TYPE: Using vote-based fallback:', creativeType)
+    }
     
     console.log('\n📊 CREATIVE TYPE DETERMINATION:')
     console.log(`Type: ${creativeType}`)
@@ -442,7 +477,12 @@ export async function processCreativeAsset(assetId: string) {
         result: creativeType,
         confidence: avgConfidence,
         votes: ugcVotes,
-        gemini_ugc_data: geminiResults?.ugc_classification || null
+        gemini_ugc_data: geminiResults?.ugc_classification || null,
+        // Add new content type analysis data
+        content_type_analysis: geminiResults?.content_type_analysis || null,
+        is_marketing_content: geminiResults?.content_type_analysis?.is_marketing_content ?? true,
+        reasoning: geminiResults?.content_type_analysis?.reasoning || null,
+        signals: geminiResults?.content_type_analysis?.signals || null
       },
       vocabulary_compliance: vocabularyCheckResult || {
         status: 'pass',
@@ -798,6 +838,21 @@ The checks you must perform:
 3. Brand Tone: CRITICAL - Perform nuanced analysis as a human brand expert would. Analyze whether the spoken audio, on-screen text, and overall creative mood align with the brand's desired tone, which is: [${brandGuidelines.tone_keywords && brandGuidelines.tone_keywords.length > 0 ? brandGuidelines.tone_keywords.join(', ') : 'No specific tone keywords provided'}]. Consider vocabulary choice, speaking style, energy level, emotional resonance, and whether the content authentically represents the brand's voice and personality.
 4. Disclaimers: Are required disclaimers present?
 5. Layout: Is the visual composition appropriate?
+6. Content Type: CRITICAL - First determine if this is marketing/advertising content at all. Then classify its style.
+   
+   Definitions:
+   - Marketing Content: Any content created with intent to promote, advertise, or endorse a product/service/brand
+   - Branded Content: Professional marketing with high production quality, stable camera, scripted elements
+   - UGC Content: Authentic marketing with casual feel, potentially handheld camera, unscripted testimonials
+   - Non-Marketing: Personal videos, random footage, content without any promotional intent
+   
+   Analyze:
+   - Is there clear marketing/promotional intent?
+   - Is a product or service being featured intentionally?
+   - Is there any call to action (explicit or implied)?
+   - What's the production style and quality?
+   
+   IMPORTANT: Personal videos or random content should be classified as "Non-Marketing" even if a product appears incidentally.
 
 Do NOT analyze brand name pronunciation - that will be handled separately.
 
@@ -833,10 +888,18 @@ Return ONLY a valid JSON object in this exact structure:
     "business_impact": "impact or N/A",
     "citations": []
   },
-  "ugc_classification": {
-    "is_ugc": true|false,
+  "content_type_analysis": {
+    "is_marketing_content": true|false,
+    "classification": "'Branded' or 'UGC' or 'Non-Marketing'",
     "confidence": 0.0-1.0,
-    "reasoning": "explanation"
+    "reasoning": "clear explanation of the verdict",
+    "signals": {
+      "marketing_intent": "'clear' or 'unclear' or 'absent'",
+      "product_focus": "'prominent' or 'incidental' or 'none'",
+      "call_to_action": "'present' or 'implied' or 'absent'",
+      "camera_stability": "'stable' or 'shaky' or 'mixed'",
+      "production_quality": "'professional' or 'amateur' or 'semi-professional'"
+    }
   }
 }`
     
@@ -930,6 +993,16 @@ Return ONLY a valid JSON object in this exact structure:
       toneNotes: geminiResults.tone_compliance?.notes?.substring(0, 200),
       toneBusinessImpact: geminiResults.tone_compliance?.business_impact,
       toneCitationsCount: geminiResults.tone_compliance?.citations?.length || 0
+    })
+    
+    // Log content type analysis
+    console.log('📱 CONTENT TYPE DEBUG - Gemini Response:', {
+      hasContentTypeAnalysis: !!geminiResults.content_type_analysis,
+      isMarketingContent: geminiResults.content_type_analysis?.is_marketing_content,
+      classification: geminiResults.content_type_analysis?.classification,
+      confidence: geminiResults.content_type_analysis?.confidence,
+      reasoning: geminiResults.content_type_analysis?.reasoning,
+      signals: geminiResults.content_type_analysis?.signals
     })
     
     console.log('📊 All Compliance results:', {
@@ -1567,13 +1640,43 @@ function generateFrontendReport(legendResults: any): FrontendReportItem[] {
     }
   }
   
-  // UGC Classification
+  // Content Type Classification with Marketing Intent
   if (legendResults.ugc_classification) {
     const ugc = legendResults.ugc_classification
+    const isMarketing = ugc.is_marketing_content
+    const classification = ugc.result
+    
+    console.log('📱 CONTENT TYPE DEBUG - Frontend Report:', {
+      classification,
+      isMarketing,
+      reasoning: ugc.reasoning,
+      signals: ugc.signals
+    })
+    
+    // Determine pass/fail based on marketing intent
+    let result: 'pass' | 'fail' | 'warn' = 'pass'
+    let details = ''
+    
+    if (classification === 'Non-Marketing') {
+      // Non-marketing content should fail
+      result = 'fail'
+      details = `Non-marketing content detected. ${ugc.reasoning || 'This appears to be personal content without promotional intent.'}`
+    } else if (classification === 'UGC') {
+      result = 'pass'
+      details = `UGC marketing content (${Math.round(ugc.confidence * 100)}% confidence). ${ugc.reasoning || 'Authentic user-generated promotional content.'}`
+    } else if (classification === 'Branded') {
+      result = 'pass'
+      details = `Branded marketing content (${Math.round(ugc.confidence * 100)}% confidence). ${ugc.reasoning || 'Professional advertisement with clear marketing intent.'}`
+    } else {
+      // Unclear or legacy format
+      result = isMarketing === false ? 'fail' : 'pass'
+      details = `Classified as ${classification} content with ${Math.round(ugc.confidence * 100)}% confidence.`
+    }
+    
     report.push({
       check: 'Content Type',
-      result: 'pass',
-      details: `Classified as ${ugc.result} content with ${Math.round(ugc.confidence * 100)}% confidence.`
+      result,
+      details
     })
   }
   

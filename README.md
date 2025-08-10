@@ -29,10 +29,9 @@ QAlien is a comprehensive multi-tenant SaaS platform that enables organizations 
 - **State Management**: TanStack Query with real-time subscriptions
 
 **AI & ML Services** (Best-of-breed approach)
-- **Core LLM Reasoning**: AWS Bedrock (Claude 3.5 Sonnet)
-- **Image Analysis**: OpenAI Vision API
-- **Video Understanding**: Twelve Labs API
-- **Speech-to-Text**: AssemblyAI
+- **Core LLM Reasoning**: AWS Bedrock (Claude 3.5 Sonnet) for vocabulary analysis
+- **Primary Creative Analysis**: Google Gemini 1.5 Pro for video/image compliance
+- **Speech-to-Text**: AssemblyAI for audio transcription
 - **Email**: Resend
 
 **Infrastructure**

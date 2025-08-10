@@ -1,7 +1,7 @@
-# Compliance Legend - Modern Stack
-> **Status**: Migration to Modern Stack - Legend v1.0 maintained  
-> **Last Updated**: 7 Jan 2025  
-> **Stack**: Supabase + Bedrock AI analysis
+# Compliance Legend - Modern Stack (Gemini-Powered)
+> **Status**: Migration to Google Gemini - Legend v1.0 maintained  
+> **Last Updated**: 15 Jan 2025  
+> **Stack**: Supabase + Google Gemini 1.5 Pro + AWS Bedrock (vocabulary) + AssemblyAI
 
 ---
 
@@ -12,87 +12,144 @@ The 7-tag compliance legend remains **unchanged** during stack migration to ensu
 ### **Core Tags**
 | Priority | Tag | Description | Modern Implementation |
 |----------|-----|-------------|----------------------|
-| **1** | **Logos / Iconography** | Logo presence, placement, and safe zones | Bedrock Vision + stored brand logos |
-| **2** | **Colors / Palette** | Brand color compliance and tolerance | Bedrock analysis + brand color palette |
-| **3** | **Brand Vocabulary** | Approved/banned terms detection | Bedrock text analysis + brand vocabulary |
-| **4** | **Brand Tone** | Mood, formality, brand voice alignment | Bedrock LLM + brand tone guidelines |
-| **5** | **Disclaimers & Required Language** | Legal text presence and placement | Bedrock OCR + required disclaimers |
-| **6** | **Layout / Safe-zone** | Composition rules and positioning | Bedrock spatial analysis + layout rules |
-| **7** | **Golden-Set Context** | Reference to approved examples | Vector similarity search with pgvector |
+| **1** | **Logos / Iconography** | Logo presence, placement, and safe zones | **Google Gemini** vision analysis + stored brand logos |
+| **2** | **Colors / Palette** | Brand color compliance and tolerance | **Google Gemini** color analysis + brand palette |
+| **3** | **Brand Vocabulary** | Approved/banned terms detection | **AWS Bedrock** text analysis + pronunciation check |
+| **4** | **Brand Tone** | Mood, formality, brand voice alignment | **Google Gemini** + brand tone_keywords |
+| **5** | **Disclaimers & Required Language** | Legal text presence and placement | **Google Gemini** OCR + required disclaimers |
+| **6** | **Layout / Safe-zone** | Composition rules and positioning | **Google Gemini** spatial analysis + layout rules |
+| **7** | **Content Type Classification** | UGC vs Produced detection | **Google Gemini** holistic analysis |
 
 ---
 
 ## 📊 **Modern Stack Implementation**
 
-### **AI Analysis Pipeline**
+### **AI Analysis Pipeline** (Current Implementation)
 ```typescript
-// Bedrock analysis via Edge Functions
-export async function analyzeCreative(creativeId: string, brandId: string) {
-  const bedrock = new BedrockRuntime({
-    region: 'us-east-1',
-    credentials: {
-      accessKeyId: Deno.env.get('AWS_ACCESS_KEY_ID'),
-      secretAccessKey: Deno.env.get('AWS_SECRET_ACCESS_KEY')
-    }
-  })
+// Google Gemini + Queue-based analysis via Edge Functions
+import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai@0.21.0'
+import { processCreativeAsset } from '../_shared/ai_pipeline.ts'
+
+// Main analysis function using AI Job Queue
+export async function processAIJobQueue() {
+  // Atomic job dequeuing
+  const { data: job } = await supabase
+    .rpc('dequeue_next_job_if_idle')
   
-  // Get brand guidelines
-  const supabase = createClient(supabaseUrl, supabaseKey)
-  const { data: brand } = await supabase
-    .from('brands')
-    .select('*')
-    .eq('id', brandId)
-    .single()
+  if (!job) {
+    return new Response(JSON.stringify({ message: 'No jobs available' }))
+  }
+
+  try {
+    // Process with Gemini + Bedrock + AssemblyAI
+    await processCreativeAsset(job.asset_id)
+    
+    // Mark job complete
+    await supabase
+      .from('ai_job_queue')
+      .update({ 
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+      
+  } catch (error) {
+    // Mark job failed
+    await supabase
+      .from('ai_job_queue')
+      .update({ 
+        status: 'failed',
+        error_message: error.message 
+      })
+      .eq('id', job.id)
+  }
+}
+
+// Comprehensive Gemini analysis
+async function analyzeWithGemini(videoUrl: string, brand: any) {
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
   
-  // Analyze with Bedrock
-  const response = await bedrock.invokeModel({
-    modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
-    body: JSON.stringify({
-      messages: [
-        {
-          role: 'user',
-          content: `Analyze this creative for brand compliance using our 7-tag system:
-            
-            Brand Guidelines: ${JSON.stringify(brand)}
-            Creative URL: ${creativeUrl}
-            
-            Return analysis in the standard v1.0 format.`
-        }
-      ],
-      max_tokens: 2000
-    })
-  })
+  const prompt = `You are an expert brand compliance analyst. Analyze this video against the brand guidelines and return a complete compliance assessment.
+
+Brand Guidelines:
+${JSON.stringify({
+  name: brand.name,
+  industry: brand.industry,
+  color_palette: brand.color_palette,
+  tone_keywords: brand.tone_keywords,
+  required_disclaimers: brand.required_disclaimers,
+  banned_terms: brand.banned_terms
+}, null, 2)}
+
+Return ONLY a valid JSON object with this structure:
+{
+  "logo_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "detailed analysis",
+    "business_impact": "impact description",
+    "citations": []
+  },
+  "color_compliance": { /* same structure */ },
+  "tone_compliance": { /* same structure */ },
+  "disclaimer_compliance": { /* same structure */ },
+  "layout_compliance": { /* same structure */ },
+  "ugc_classification": {
+    "is_ugc": true|false,
+    "confidence": 0.0-1.0,
+    "reasoning": "explanation"
+  }
+}`
+
+  const result = await model.generateContent([
+    { 
+      inlineData: {
+        mimeType: 'video/mp4',
+        data: videoBase64
+      }
+    },
+    { text: prompt }
+  ])
   
-  return parseAnalysisResult(response)
+  return extractJSON(result.response.text())
 }
 ```
 
-### **Database Schema (Supabase)**
+### **Database Schema (Supabase)** - Current Implementation
 ```sql
--- Store analysis results
-CREATE TABLE creative_analysis (
+-- Campaign assets with integrated analysis results
+CREATE TABLE campaign_assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  creative_id UUID REFERENCES creatives(id),
-  brand_id UUID REFERENCES brands(id),
+  campaign_id UUID REFERENCES campaigns(id),
+  storage_path TEXT NOT NULL,
+  asset_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
   
-  -- Legend v1.0 compliance
-  legend_version VARCHAR(10) DEFAULT '1.0',
-  overall_status VARCHAR(20) CHECK (overall_status IN ('pass', 'warn', 'fail')),
+  -- Analysis Results (Legend v1.0 format preserved)
+  legend_results JSONB, -- Complete Gemini compliance analysis
+  raw_transcript_data JSONB, -- AssemblyAI transcript
+  frontend_report JSONB, -- User-facing 7-tag report
+  overall_status TEXT CHECK (overall_status IN ('pass', 'warn', 'fail')),
+  compliance_score INTEGER, -- 0-100 percentage
+  creative_type TEXT CHECK (creative_type IN ('UGC', 'Produced')),
   
-  -- Tag results (JSONB for flexibility)
-  tag_results JSONB NOT NULL,
+  -- Processing Status
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
   
-  -- Analysis metadata
-  analysis_timestamp TIMESTAMP DEFAULT NOW(),
-  ai_model_version VARCHAR(50),
-  confidence_score DECIMAL(5,2),
-  
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Index for fast lookups
-CREATE INDEX idx_creative_analysis_creative_id ON creative_analysis(creative_id);
-CREATE INDEX idx_creative_analysis_brand_id ON creative_analysis(brand_id);
+-- AI job queue for async processing
+CREATE TABLE ai_job_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_id UUID REFERENCES campaign_assets(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  error_message TEXT
+);
 ```
 
 ---

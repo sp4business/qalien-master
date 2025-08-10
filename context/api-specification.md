@@ -13,14 +13,15 @@ QAlien is migrating from AWS-heavy architecture to a modern stack:
 - **Database**: Supabase Postgres + pgvector
 - **API**: Supabase Edge Functions (TypeScript)
 - **Storage**: Supabase Storage (S3-compatible)
-- **AI**: AWS Bedrock (via Edge Functions)
+- **AI**: AWS Bedrock (Claude 3.5 Sonnet), Google Gemini 1.5 Pro, AssemblyAI
 - **Email**: Resend
 
-### **Migration Phases**
-- **Phase 1**: Frontend-only (qa-alien-master) ← Current
-- **Phase 2**: Backend API migration to Edge Functions
-- **Phase 3**: Database migration to Postgres
-- **Phase 4**: Full production deployment
+### **Migration Status**
+- **Phase 1**: Frontend migration ✅ Complete
+- **Phase 2**: Backend API migration to Edge Functions ✅ Complete
+- **Phase 3**: Database migration to Postgres ✅ Complete
+- **Phase 4**: Full production deployment ✅ Complete
+- **Current**: AI Service optimization (Gemini integration) ✅ Complete
 
 ---
 
@@ -72,14 +73,15 @@ User → Organization → Brand → Creatives
 | Direct Supabase Query | GET | `authenticated` | List campaigns via RLS |
 | Real-time Subscription | WS | `authenticated` | Live campaign updates |
 
-### **AI Analysis**
+### **AI Analysis (Current Implementation)**
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/ai/analyze/image` | POST | `brand_admin` | Analyze image with OpenAI Vision |
-| `/api/ai/analyze/video` | POST | `brand_admin` | Analyze video with Twelve Labs |
-| `/api/ai/analyze/audio` | POST | `brand_admin` | Transcribe & analyze with AssemblyAI |
-| `/api/ai/analyze/compliance` | POST | `brand_admin` | Generate compliance report with Bedrock |
-| `/api/ai/status/{id}` | GET | `brand_member` | Check analysis status |
+| `/functions/v1/process-new-creative` | POST | `authenticated` | Queue creative for analysis |
+| `/functions/v1/process-ai-job-queue` | POST | `service` | Process queued AI jobs (cron) |
+| `/functions/v1/get-asset-upload-url` | POST | `authenticated` | Generate signed upload URL |
+| `/functions/v1/link-campaign-asset` | POST | `authenticated` | Link uploaded asset to campaign |
+| `/functions/v1/delete-campaign-asset` | DELETE | `authenticated` | Delete campaign asset |
+| Real-time Subscription | WS | `authenticated` | Live analysis updates via Supabase |
 
 ---
 
@@ -113,6 +115,53 @@ await clerk.organizations.setActive({
 
 ---
 
+## 🤖 **AI Services Architecture (Current Implementation)**
+
+### **Google Gemini 1.5 Pro** (Primary Creative Analysis)
+**Purpose**: Comprehensive video and image analysis for brand compliance
+- **Model**: `gemini-1.5-pro`
+- **Capabilities**: 
+  - Logo compliance checking
+  - Color palette analysis  
+  - Brand tone assessment
+  - Disclaimer compliance
+  - Layout compliance
+  - UGC vs Produced classification
+  - Multi-modal content understanding
+
+**Video Processing Limits**:
+- Maximum size: 20MB (inline processing)
+- Supported formats: MP4 (H.264), WebM, MOV, AVI, 3GPP, FLV, MPG, WMV
+- Unsupported: HEVC/H.265 (requires conversion to H.264)
+
+### **AWS Bedrock Claude 3.5 Sonnet**
+**Purpose**: Brand vocabulary and pronunciation analysis
+- **Model**: `anthropic.claude-3-5-sonnet-20240620-v1:0`
+- **Capabilities**: 
+  - Brand name pronunciation checking
+  - Banned/approved vocabulary analysis
+  - Text-based compliance assessment
+  - PDF guideline extraction
+
+### **AssemblyAI**
+**Purpose**: Audio transcription
+- **Capabilities**: 
+  - High-accuracy speech-to-text
+  - Word-level timestamps
+  - Language detection
+  - Confidence scoring
+
+### **AI Job Queue System**
+**Database Table**: `ai_job_queue`
+**Processing**: Cron job every minute with atomic dequeuing
+**Features**: 
+- Race condition prevention
+- Error handling and retry logic
+- Real-time status updates
+- Exponential backoff for rate limiting
+
+---
+
 ## 💾 **Database Schema (Supabase Postgres)**
 
 ### **Organizations Table**
@@ -140,33 +189,89 @@ CREATE TABLE organization_memberships (
 );
 ```
 
-### **Brands Table**
+### **Brands Table** (Current Implementation)
 ```sql
 CREATE TABLE brands (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES organizations(id),
+  clerk_org_id VARCHAR(255) NOT NULL, -- References Clerk organization
   name VARCHAR(255) NOT NULL,
+  description TEXT,
   industry VARCHAR(100),
-  guidelines_url TEXT,
-  color_palette JSONB,
-  created_by UUID REFERENCES users(id),
+  status VARCHAR(20) DEFAULT 'active',
+  
+  -- Brand Guidelines  
+  logo_files TEXT[] DEFAULT '{}',
+  color_palette TEXT[] DEFAULT '{}',
+  tone_keywords TEXT[] DEFAULT '{}', -- Used by Gemini for tone analysis
+  approved_terms TEXT[] DEFAULT '{}',
+  banned_terms TEXT[] DEFAULT '{}',
+  required_disclaimers TEXT[] DEFAULT '{}',
+  phonetic_pronunciation TEXT, -- For pronunciation checking
+  
+  -- Layout Rules
+  safe_zone_config JSONB DEFAULT '{}',
+  
+  -- Metadata
+  created_by_clerk_id VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
-### **Creatives Table**
-```sql
-CREATE TABLE creatives (
+### **Campaign Assets Table** (Current Implementation)
+```sql  
+CREATE TABLE campaign_assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES organizations(id),
-  brand_id UUID REFERENCES brands(id),
-  filename VARCHAR(255) NOT NULL,
-  file_url TEXT,
-  analysis_results JSONB,
-  status VARCHAR(50) DEFAULT 'processing',
+  campaign_id UUID REFERENCES campaigns(id),
+  storage_path TEXT NOT NULL,
+  asset_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size_bytes BIGINT,
+  
+  -- Analysis Results
+  source_properties JSONB,
+  ugc_detection_data JSONB,
+  creative_type TEXT CHECK (creative_type IN ('UGC', 'Produced')),
+  legend_results JSONB, -- Comprehensive compliance analysis from Gemini
+  raw_transcript_data JSONB, -- Complete AssemblyAI transcript
+  frontend_report JSONB, -- User-facing compliance report
+  overall_status TEXT CHECK (overall_status IN ('pass', 'warn', 'fail')),
+  compliance_score INTEGER,
+  
+  -- Processing Status
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+  
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **AI Job Queue Table**
+```sql
+CREATE TABLE ai_job_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_id UUID REFERENCES campaign_assets(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  error_message TEXT
+);
+```
+
+### **Team Invitations Table**
+```sql
+CREATE TABLE team_invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  scope_type TEXT CHECK (scope_type IN ('organization', 'brand')),
+  scope_id TEXT NOT NULL,
+  invited_by TEXT NOT NULL,
+  clerk_invitation_id TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  expires_at TIMESTAMP
 );
 ```
 
