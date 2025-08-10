@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document details the implementation of the brand onboarding feature, the core user flow for setting up brand guidelines in QAlien.
+This document details the implementation of the brand onboarding feature, the core user flow for setting up brand guidelines in QAlien. The onboarding system integrates with Google Gemini for advanced creative compliance analysis and includes an AI job queue system for efficient processing.
 
 ### Completed Features
 
@@ -22,7 +22,9 @@ This document details the implementation of the brand onboarding feature, the co
 **`brands` table:**
 
 *   Added: `website TEXT`
-*   Existing: `logo_files[]`, `color_palette[]`, `tone_keywords[]`, etc.
+*   Added: `phonetic_pronunciation TEXT` - for pronunciation compliance checking
+*   Added: `required_disclaimers TEXT[]` - for disclaimer compliance
+*   Existing: `logo_files[]`, `color_palette[]`, `tone_keywords[]`, `approved_terms[]`, `banned_terms[]`
 
 **`golden_set_creatives` table (NEW):**
 
@@ -33,6 +35,27 @@ This document details the implementation of the brand onboarding feature, the co
 *   `file_type`: `text`
 *   `creative_type`: `text` (`'UGC'` | `'Produced'`)
 *   `status`: `text`, default `'pending'`
+
+**`ai_job_queue` table (NEW):**
+
+*   `id`: `uuid`, primary key
+*   `asset_id`: `uuid`, foreign key to `campaign_assets`
+*   `status`: `text` (`'pending'` | `'processing'` | `'completed'` | `'failed'`)
+*   `created_at`: `timestamp`
+*   `started_at`: `timestamp`
+*   `completed_at`: `timestamp`
+*   `error_message`: `text`
+
+**`team_invitations` table (NEW):**
+
+*   `id`: `uuid`, primary key
+*   `email`: `text`
+*   `role`: `text`
+*   `scope_type`: `text` (`'organization'` | `'brand'`)
+*   `scope_id`: `text`
+*   `invited_by`: `text`
+*   `status`: `text`
+*   `expires_at`: `timestamp`
 
 ### Storage Structure
 
@@ -46,6 +69,63 @@ This document details the implementation of the brand onboarding feature, the co
 ```
 https://[project-ref].supabase.co/storage/v1/object/public/brand-assets/[path]
 ```
+
+## AI Processing Pipeline
+
+### Google Gemini Integration
+
+The system uses Google Gemini 1.5 Pro for comprehensive creative analysis:
+
+```typescript
+// Video analysis with Gemini
+const geminiResults = await analyzeCreativeWithGemini(videoUrl, brand)
+
+// Compliance checks performed:
+// - Logo compliance
+// - Color compliance 
+// - Brand tone analysis
+// - Disclaimer compliance
+// - Layout compliance
+// - UGC classification
+```
+
+### AI Job Queue System
+
+To handle multiple uploads without overwhelming the AI services, QAlien implements a robust queue system:
+
+```mermaid
+graph TD
+    A[Creative Upload] --> B[Add to ai_job_queue]
+    B --> C[Cron Job Every Minute]
+    C --> D[Dequeue Next Job]
+    D --> E[Process with Gemini]
+    E --> F[Update Results]
+    F --> G[Mark Job Complete]
+```
+
+**Key Features:**
+- Atomic job dequeuing with locking
+- Retry logic with exponential backoff
+- Comprehensive error handling
+- Real-time status updates
+
+### Video Codec Compatibility
+
+The system includes sophisticated video format detection:
+
+```typescript
+// Detect iPhone HEVC videos that need conversion
+const compatibility = isLikelyCompatible(mimeType, fileSize, fileName)
+if (!compatibility.compatible) {
+  // Provide conversion recommendations
+}
+```
+
+**Supported Formats:**
+- MP4 (H.264/AVC) ✅
+- WebM ✅
+- MOV (H.264) ✅
+- HEVC/H.265 ❌ (conversion recommended)
 
 ## Critical Implementation Patterns
 
@@ -102,9 +182,11 @@ This approach avoids CORS issues that can occur with canvas-based thumbnail gene
 
 ### Step 2: Verbal Identity
 
-1.  Enter brand tone keywords.
+1.  Enter brand tone keywords (used by Gemini for tone compliance analysis).
 2.  Enter approved and banned terms.
-3.  Verify that the `brands` table in Supabase is updated with the correct information.
+3.  Enter phonetic pronunciation for brand name (optional).
+4.  Enter required disclaimers.
+5.  Verify that the `brands` table in Supabase is updated with the correct information including `tone_keywords`, `approved_terms`, `banned_terms`, `phonetic_pronunciation`, and `required_disclaimers`.
 
 ### Step 3: Golden Set Creatives
 

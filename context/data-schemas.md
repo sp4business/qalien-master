@@ -1,7 +1,7 @@
-# Data Schemas - Modern Stack
-> **Status**: Migration to Supabase Postgres  
-> **Last Updated**: 7 Jan 2025  
-> **Purpose**: Comprehensive schemas for QAlien entities on modern stack
+# Data Schemas - Modern Stack (Updated)
+> **Status**: Migration to Supabase Postgres ✅ Complete  
+> **Last Updated**: 15 Jan 2025  
+> **Purpose**: Comprehensive schemas for QAlien entities with Gemini AI integration
 
 ---
 
@@ -11,8 +11,9 @@
 - **Database**: Supabase Postgres (JSONB support)
 - **Schema**: SQL with UUID primary keys
 - **Security**: Row Level Security (RLS) policies
-- **Search**: pgvector for AI embeddings
+- **AI Analysis**: Google Gemini 1.5 Pro + AWS Bedrock + AssemblyAI
 - **Storage**: Supabase Storage (S3-compatible)
+- **Queue**: AI job queue for async processing
 
 ### **Core Architecture**
 ```

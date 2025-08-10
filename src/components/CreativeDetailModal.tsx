@@ -103,57 +103,9 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
     'Layout/Safe-zone': '📐'
   };
 
-  const frontendReport = creative.frontend_report || [
-    {
-      category: 'Logos/Iconography',
-      icon: '🏷️',
-      score: 95,
-      status: 'pass' as const,
-      feedback: 'Logo placement and sizing comply with brand guidelines. Clear space requirements are met.',
-      suggestions: ['Ensure logo contrast ratio remains above 4.5:1 for accessibility']
-    },
-    {
-      category: 'Colors/Palette',
-      icon: '🎨',
-      score: 90,
-      status: 'pass' as const,
-      feedback: 'Brand colors are used correctly throughout the asset.',
-      suggestions: ['Consider using the secondary palette for better visual hierarchy']
-    },
-    {
-      category: 'Brand Vocabulary',
-      icon: '📝',
-      score: 88,
-      status: 'warning' as const,
-      feedback: 'Most brand vocabulary is correct, but some terminology needs adjustment.',
-      suggestions: [
-        'Replace "purchase" with "get yours today"',
-        'Use "discover" instead of "find out"'
-      ]
-    },
-    {
-      category: 'Brand Tone',
-      icon: '💬',
-      score: 94,
-      status: 'pass' as const,
-      feedback: 'The messaging maintains the playful yet sophisticated brand voice perfectly.'
-    },
-    {
-      category: 'Disclaimers & Required Language',
-      icon: '⚖️',
-      score: 100,
-      status: 'pass' as const,
-      feedback: 'All required legal disclaimers are present and properly formatted.'
-    },
-    {
-      category: 'Layout/Safe-zone',
-      icon: '📐',
-      score: 92,
-      status: 'pass' as const,
-      feedback: 'Layout respects all safe zones and maintains proper spacing.',
-      suggestions: ['Could increase top margin by 5px for optimal breathing room']
-    }
-  ];
+  // Check if asset is still being processed
+  const isProcessing = creative.status === 'pending' || creative.status === 'processing';
+  const frontendReport = creative.frontend_report || [];
 
   const analysisCategories = creative.analysis ? [
     { key: 'logo_usage', label: 'Logo Usage', icon: '🏷️' },
@@ -221,7 +173,14 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
 
               <div className="bg-green-500/10 rounded-xl p-6 mb-8">
                 <h3 className="text-lg font-medium text-white mb-4">Compliance Score</h3>
-                <ComplianceScoreBar score={creative.compliance_score || 0} />
+                {isProcessing ? (
+                  <div className="animate-pulse">
+                    <div className="h-8 bg-gray-700 rounded-lg"></div>
+                    <div className="mt-2 h-4 w-24 bg-gray-700 rounded"></div>
+                  </div>
+                ) : (
+                  <ComplianceScoreBar score={creative.compliance_score || 0} />
+                )}
               </div>
 
               <div className="bg-blue-500/10 border-l-4 border-blue-500 rounded-lg p-6 mb-8">
@@ -232,7 +191,9 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
                   <div>
                     <h3 className="text-lg font-medium text-white mb-2">Executive Summary</h3>
                     <p className="text-gray-300 leading-relaxed">
-                      {creative.analysis?.executive_summary || generateExecutiveSummary(frontendReport)}
+                      {isProcessing 
+                        ? 'Analysis in progress...' 
+                        : (creative.analysis?.executive_summary || generateExecutiveSummary(frontendReport))}
                     </p>
                   </div>
                 </div>
@@ -273,7 +234,25 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
               <div>
                 <h3 className="text-lg font-medium text-white mb-6">Detailed Analysis</h3>
                 <div className="space-y-4">
-                  {frontendReport && frontendReport.length > 0 ? (
+                  {isProcessing ? (
+                    // Show skeleton loaders when processing
+                    <>
+                      {['Brand Tone', 'Logo & Iconography', 'Color Palette', 'Brand Vocabulary', 'Disclaimers & Required Language', 'Layout/Safe-zone'].map((category, idx) => (
+                        <div key={category + idx} className="bg-[#0F1117] rounded-lg overflow-hidden animate-pulse">
+                          <div className="px-6 py-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3">
+                                <div className="w-8 h-8 bg-gray-700 rounded"></div>
+                                <div className="h-5 w-32 bg-gray-700 rounded"></div>
+                                <div className="h-6 w-20 bg-gray-700 rounded"></div>
+                              </div>
+                              <div className="w-5 h-5 bg-gray-700 rounded"></div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : frontendReport && frontendReport.length > 0 ? (
                     frontendReport.map((item, idx) => {
                       // Support both old and new format
                       const categoryName = item.category || item.check || 'Unknown Check';
@@ -285,7 +264,7 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
                       
                       // Get icon
                       const icon = item.icon || officialCategoryIcons[categoryName] || 
-                        (categoryName === 'Logo Usage' ? '🏷️' :
+                        (categoryName === 'Brand Tone' ? '💬' :
                          categoryName === 'Color Palette' ? '🎨' :
                          categoryName === 'Content Type' ? '📱' :
                          categoryName === 'Brand Vocabulary' ? '📝' : '📋');
@@ -382,7 +361,9 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
                   ) : (
                     <div className="bg-[#0F1117] rounded-lg p-6 text-center">
                       <p className="text-gray-400">
-                        Detailed analysis will be available once processing is complete.
+                        {creative.status === 'failed' 
+                          ? 'Analysis failed. Please try uploading the asset again.'
+                          : 'No analysis data available.'}
                       </p>
                     </div>
                   )}

@@ -18,7 +18,7 @@ serve(async (req) => {
     
     const { data: job, error: selectError } = await supabaseAdmin
       .rpc('dequeue_next_job_if_idle')
-      .single()
+      .maybeSingle()  // Use maybeSingle() to handle 0 or 1 rows
 
     if (selectError) {
       console.error('The RPC call itself failed:', JSON.stringify(selectError, null, 2))
@@ -29,7 +29,7 @@ serve(async (req) => {
     }
 
     if (!job) {
-      console.log('RPC call was successful, but returned no job. This confirms the SQL logic inside the RPC could not find a suitable pending job.')
+      console.log('No job to process - queue is empty or a job is already processing')
       return new Response(
         JSON.stringify({ message: 'No jobs available' }),
         { headers: { 'Content-Type': 'application/json' }, status: 200 }

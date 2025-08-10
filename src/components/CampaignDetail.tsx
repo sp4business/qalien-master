@@ -125,8 +125,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [creativeToDelete, setCreativeToDelete] = useState<Creative | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [failedAssets, setFailedAssets] = useState<Creative[]>([]);
-  const [isRetrying, setIsRetrying] = useState(false);
 
   // Function to fetch assets
   const fetchAssets = async () => {
@@ -182,16 +180,13 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
         };
       });
       
-      // Separate failed assets
-      const failed = loadedCreatives.filter(c => c.status === 'failed');
-      const active = loadedCreatives.filter(c => c.status !== 'failed');
+      // Filter out failed assets completely - we don't show them
+      const activeCreatives = loadedCreatives.filter(c => c.status !== 'failed');
       
-      setCreatives(active);
-      setFailedAssets(failed);
+      setCreatives(activeCreatives);
     } else {
       // No assets found, clear the mock data
       setCreatives([]);
-      setFailedAssets([]);
     }
   };
 
@@ -268,8 +263,11 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
               return filtered;
             });
           } else {
-            // For INSERT and UPDATE, refresh the full list
-            await fetchAssets();
+            // For INSERT and UPDATE, refresh the full list with a small delay to ensure data is committed
+            // This helps avoid race conditions where we fetch before the transaction completes
+            setTimeout(async () => {
+              await fetchAssets();
+            }, 500);
           }
         }
       )
@@ -282,6 +280,41 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
       supabase.removeChannel(channel);
     };
   }, [campaignId, supabase]);
+
+  // Poll for updates on processing assets
+  useEffect(() => {
+    if (!campaignId) return;
+
+    // Check if there are any processing assets
+    const hasProcessingAssets = creatives.some(c => c.status === 'processing' || c.status === 'pending');
+    
+    if (!hasProcessingAssets) {
+      console.log('No processing assets, skipping polling');
+      return;
+    }
+
+    console.log('Starting polling for processing assets');
+    
+    // Poll every 3 seconds for processing assets
+    const interval = setInterval(async () => {
+      // Check if still have processing assets
+      const stillProcessing = creatives.some(c => c.status === 'processing' || c.status === 'pending');
+      
+      if (!stillProcessing) {
+        console.log('No more processing assets, stopping polling');
+        clearInterval(interval);
+        return;
+      }
+      
+      console.log('Polling for asset updates...');
+      await fetchAssets();
+    }, 3000);
+
+    return () => {
+      console.log('Cleaning up polling interval');
+      clearInterval(interval);
+    };
+  }, [campaignId, creatives, supabase]);
 
   const handleCreativeClick = (creative: Creative) => {
     setSelectedCreative(creative);
@@ -349,59 +382,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     } finally {
       setIsDeleting(false);
       setCreativeToDelete(null);
-    }
-  };
-
-  const handleRetryFailed = async () => {
-    if (failedAssets.length === 0) return;
-    
-    setIsRetrying(true);
-    try {
-      const token = await getToken({ template: 'supabase' });
-      if (!token) throw new Error('No auth token');
-      
-      // Call requeue function for each failed asset
-      const retryPromises = failedAssets.map(async (asset) => {
-        const { data, error } = await supabase.rpc('requeue_failed_asset', {
-          asset_uuid: asset.creative_id
-        });
-        
-        if (error) {
-          console.error(`Failed to retry asset ${asset.name}:`, error);
-          return { success: false, assetId: asset.creative_id };
-        }
-        
-        return { success: true, assetId: asset.creative_id };
-      });
-      
-      const results = await Promise.all(retryPromises);
-      const successCount = results.filter(r => r.success).length;
-      
-      if (successCount > 0) {
-        toast({
-          title: 'Retry initiated',
-          description: `Requeued ${successCount} of ${failedAssets.length} failed assets for processing.`,
-          variant: 'success'
-        });
-        
-        // Refresh assets list
-        await fetchAssets();
-      } else {
-        toast({
-          title: 'Retry failed',
-          description: 'Unable to retry failed assets. Please try again.',
-          variant: 'error'
-        });
-      }
-    } catch (error) {
-      console.error('Error retrying failed assets:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to retry assets',
-        variant: 'error'
-      });
-    } finally {
-      setIsRetrying(false);
     }
   };
 
@@ -798,54 +778,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
           </div>
         )}
       </div>
-      
-      {/* Failed Assets Section */}
-      {failedAssets.length > 0 && (
-        <div className="px-8 pb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-semibold text-red-400">Failed Assets</h2>
-            <button
-              onClick={handleRetryFailed}
-              disabled={isRetrying}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
-            >
-              {isRetrying ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Retrying...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <span>Retry All Failed</span>
-                </>
-              )}
-            </button>
-          </div>
-          
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6">
-            <p className="text-red-300 text-sm">
-              These assets failed to process. This usually happens due to temporary API issues. Click "Retry All Failed" to reprocess them.
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {failedAssets.map((creative) => (
-              <CreativeCard
-                key={creative.creative_id}
-                creative={creative}
-                onClick={() => handleCreativeClick(creative)}
-                onDelete={handleDeleteClick}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Creative Detail Modal */}
       {selectedCreative && (

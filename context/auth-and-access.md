@@ -364,27 +364,85 @@ export async function switchOrganization(orgId: string) {
 }
 ```
 
-### **Member Invitation**
+### **Team Invitation System** (Current Implementation)
 ```typescript
-// Invite user to organization
-export async function inviteToOrganization(
-  orgId: string,
-  email: string,
-  role: 'admin' | 'member'
-) {
-  // Invite via Clerk
-  const invitation = await clerk.organizations.invite({
-    organizationId: orgId,
-    emailAddress: email,
-    role
-  })
+// Edge Function: invite-team-members
+export async function inviteTeamMembers(invitations: Array<{
+  email: string;
+  role: string;
+  scope_type: 'organization' | 'brand';
+  scope_id: string;
+}>) {
+  const results = []
   
-  // Optional: Send custom email via Resend
-  await sendInvitationEmail(email, orgId, role)
+  for (const invitation of invitations) {
+    try {
+      // Create Clerk organization invitation
+      const clerkResponse = await fetch(
+        `https://api.clerk.dev/v1/organizations/${invitation.scope_id}/invitations`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${CLERK_SECRET_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email_address: invitation.email,
+            role: invitation.role
+          })
+        }
+      )
+      
+      if (clerkResponse.ok) {
+        const clerkInvitation = await clerkResponse.json()
+        
+        // Track invitation in database
+        const { error: dbError } = await supabase
+          .from('team_invitations')
+          .insert({
+            email: invitation.email,
+            role: invitation.role,
+            scope_type: invitation.scope_type,
+            scope_id: invitation.scope_id,
+            invited_by: clerkUserId,
+            clerk_invitation_id: clerkInvitation.id,
+            status: 'pending',
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+          })
+        
+        results.push({
+          email: invitation.email,
+          success: true,
+          clerk_invitation_id: clerkInvitation.id
+        })
+      } else {
+        results.push({
+          email: invitation.email,
+          success: false,
+          error: 'Failed to send invitation'
+        })
+      }
+    } catch (error) {
+      results.push({
+        email: invitation.email,
+        success: false,
+        error: error.message
+      })
+    }
+  }
   
-  return invitation
+  return { results }
 }
 ```
+
+### **Invitation Flow**
+1. **Admin initiates invitation** via UI
+2. **Edge function processes batch** of invitations
+3. **Clerk creates organization invitation** 
+4. **Database tracks invitation status**
+5. **Email sent to invitee** (via Clerk)
+6. **User accepts invitation** through Clerk flow
+7. **Automatic sync** to QAlien permissions
 
 ---
 

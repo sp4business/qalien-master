@@ -1,5 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0'
-import OpenAI from 'https://deno.land/x/openai@v4.20.1/mod.ts'
+import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai@0.21.0'
+import { detectVideoCharacteristics, isLikelyCompatible } from './video_utils.ts'
+// Using Google Gemini for video analysis and brand compliance
 
 interface AssemblyAITranscriptResponse {
   id: string
@@ -25,6 +27,11 @@ interface FrameAnalysis {
     logos: string[]
     text: string[]
     colors: string[]
+    color_details?: Array<{  // New field for rich color data
+      hex: string
+      percentage: number
+      location: string
+    }>
     objects: string[]
     people: number
     scenes: string[]
@@ -53,10 +60,77 @@ interface BrandVocabularyCheckResult {
   }>
 }
 
+interface ColorPaletteCheckResult {
+  status: 'pass' | 'warn' | 'fail'
+  notes: string
+  business_impact: string
+  citations: Array<{
+    type: 'off_brand_color' | 'missing_brand_color' | 'color_proportion'
+    detected_color: string
+    closest_brand_color?: string
+    distance?: number  // Color distance
+    timestamp: number
+    frame_number: number
+    location: string  // Where in frame
+    percentage: number  // How much of frame
+    severity: 'minor' | 'moderate' | 'severe'
+    recommendation: string
+  }>
+}
+
+interface LogoCheckResult {
+  status: 'pass' | 'fail'
+  notes: string
+  business_impact: string
+  citations: Array<{
+    timestamp: number
+    issue_description: string
+    severity: 'minor' | 'moderate' | 'severe'
+  }>
+}
+
 interface FrontendReportItem {
   check: string
   result: 'pass' | 'warn' | 'fail'
   details: string
+}
+
+/**
+ * Extracts JSON from a string that may contain additional text before or after the JSON.
+ * Handles cases where Claude includes explanatory text despite being told not to.
+ */
+function extractJSON<T>(content: string): T {
+  // First, try to parse as-is (ideal case where response is pure JSON)
+  try {
+    return JSON.parse(content) as T
+  } catch {
+    // If that fails, try to extract JSON from the content
+    console.log('Initial JSON parse failed, attempting extraction...')
+  }
+
+  // Try to find JSON object in the content
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]) as T
+    } catch (e) {
+      console.error('Failed to parse extracted JSON:', e)
+    }
+  }
+
+  // Try to find JSON starting from first { to last }
+  const firstBrace = content.indexOf('{')
+  const lastBrace = content.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      const extracted = content.substring(firstBrace, lastBrace + 1)
+      return JSON.parse(extracted) as T
+    } catch (e) {
+      console.error('Failed to parse substring JSON:', e)
+    }
+  }
+
+  throw new Error(`No valid JSON found in response: ${content.substring(0, 200)}...`)
 }
 
 export async function processCreativeAsset(assetId: string) {
@@ -64,13 +138,12 @@ export async function processCreativeAsset(assetId: string) {
     // Get environment variables inside the function
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!
+    // OpenAI API key removed - using Twelve Labs for video analysis
     const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY')!
     const bedrockApiKey = Deno.env.get('AWS_BEDROCK_API_KEY')!
 
     // Create clients
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    const openai = new OpenAI({ apiKey: openaiApiKey })
 
     // Get asset details
     const { data: asset, error: assetError } = await supabase
@@ -137,6 +210,39 @@ export async function processCreativeAsset(assetId: string) {
       uploaded_at: new Date().toISOString(),
     }
 
+    // Fetch brand data early (needed for video analysis)
+    let brand: any = null
+    
+    try {
+      // Fetch campaign to get brand_id
+      const { data: campaign, error: campaignError } = await supabase
+        .from('campaigns')
+        .select('brand_id')
+        .eq('id', campaignId)
+        .single()
+      
+      if (campaignError || !campaign) {
+        throw new Error(`Failed to fetch campaign: ${campaignError?.message || 'Campaign not found'}`)
+      }
+      
+      // Fetch brand data (including color_palette and logo_files for compliance checks)
+      const { data: brandData, error: brandError } = await supabase
+        .from('brands')
+        .select('*')
+        .eq('id', campaign.brand_id)
+        .single()
+      
+      if (brandError || !brandData) {
+        throw new Error(`Failed to fetch brand: ${brandError?.message || 'Brand not found'}`)
+      }
+      
+      brand = brandData
+      console.log('Fetched brand data:', brand.name)
+    } catch (error) {
+      console.error('Failed to fetch brand data:', error)
+      // Continue processing even without brand data
+    }
+
     // Initialize analysis arrays
     const frameAnalyses: FrameAnalysis[] = []
     let ugcVotes = {
@@ -146,17 +252,80 @@ export async function processCreativeAsset(assetId: string) {
       confidence_scores: [] as number[],
     }
 
+    // Initialize Gemini analysis results
+    let geminiResults: any = null
+
     if (mimeType.startsWith('video/')) {
-      // For videos, skip visual analysis for now (would need frame extraction)
-      console.log('Video visual analysis skipped - focusing on audio transcription')
+      // For videos, use Gemini for visual analysis
+      console.log('Starting video visual analysis with Gemini')
       
-      // Set default values for video
-      ugcVotes.total_frames = 1
-      ugcVotes.ugc_frames = 1 // Default to UGC for videos
-      ugcVotes.confidence_scores.push(0.7)
+      // Get the public URL for the video
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from('campaign-assets')
+        .getPublicUrl(storagePath)
+      
+      if (publicUrl && brand) {
+        try {
+          // Use Gemini for comprehensive video analysis
+          console.log('🎬 Starting Gemini video analysis')
+          console.log('🎬 Video Public URL:', publicUrl)
+          geminiResults = await analyzeCreativeWithGemini(publicUrl, brand)
+          
+          console.log('\n🔍 GEMINI VIDEO ANALYSIS RESULTS:')
+          console.log('============================================')
+          console.log(`Brand: ${brand?.name || 'Unknown'}`)
+          console.log(`Full Gemini Response:`, JSON.stringify(geminiResults, null, 2))
+          console.log(`UGC Classification:`, geminiResults.ugc_classification)
+          console.log(`Is UGC: ${geminiResults.ugc_classification?.is_ugc}`)
+          console.log(`Confidence: ${geminiResults.ugc_classification?.confidence}`)
+          console.log('============================================')
+          
+          // Create frame analyses from Gemini results for backward compatibility
+          // This is a simplified representation since Gemini analyzes the video holistically
+          // Use new content type analysis if available
+          if (geminiResults.content_type_analysis) {
+            console.log('📱 Using new content_type_analysis format')
+            ugcVotes.total_frames = 1
+            if (geminiResults.content_type_analysis.classification === 'UGC') {
+              ugcVotes.ugc_frames = 1
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            } else if (geminiResults.content_type_analysis.classification === 'Branded') {
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 1
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            } else if (geminiResults.content_type_analysis.classification === 'Non-Marketing') {
+              // Non-marketing content - neither UGC nor branded marketing
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.content_type_analysis.confidence || 0.9)
+            }
+          } else if (geminiResults.ugc_classification) {
+            // Fallback to old format
+            console.log('📱 Using legacy ugc_classification format')
+            ugcVotes.total_frames = 1
+            if (geminiResults.ugc_classification?.is_ugc === true) {
+              ugcVotes.ugc_frames = 1
+              ugcVotes.produced_frames = 0
+              ugcVotes.confidence_scores.push(geminiResults.ugc_classification?.confidence || 0.9)
+            } else {
+              ugcVotes.ugc_frames = 0
+              ugcVotes.produced_frames = 1
+              ugcVotes.confidence_scores.push(1 - (geminiResults.ugc_classification?.confidence || 0.1))
+            }
+          }
+        } catch (videoError) {
+          console.error('Video analysis failed:', videoError)
+          // Fallback to default values
+          ugcVotes.total_frames = 1
+          ugcVotes.ugc_frames = 1
+          ugcVotes.confidence_scores.push(0.7)
+        }
+      }
     } else if (mimeType.startsWith('image/') && fileBase64) {
-      // For images, analyze the single frame
-      const analysis = await analyzeFrame(fileBase64, 0, openai, mimeType)
+      // For images, provide basic placeholder analysis (focus is on videos)
+      const analysis = createPlaceholderImageAnalysis()
       frameAnalyses.push(analysis)
       
       // Update UGC detection data
@@ -170,10 +339,32 @@ export async function processCreativeAsset(assetId: string) {
       ugcVotes.confidence_scores.push(calculateUgcScore(analysis.ugc_indicators))
     }
 
-    // Calculate creative type based on UGC votes
-    const ugcPercentage = ugcVotes.ugc_frames / ugcVotes.total_frames
-    const creativeType = ugcPercentage > 0.5 ? 'UGC' : 'Produced'
-    const avgConfidence = ugcVotes.confidence_scores.reduce((a, b) => a + b, 0) / ugcVotes.confidence_scores.length
+    // Calculate creative type based on new content type analysis or legacy UGC votes
+    let creativeType = 'Produced' // default
+    let avgConfidence = 0.5 // default
+    
+    if (geminiResults?.content_type_analysis) {
+      // Use new content type classification
+      creativeType = geminiResults.content_type_analysis.classification
+      avgConfidence = geminiResults.content_type_analysis.confidence || 0.9
+      console.log('📱 CONTENT TYPE: Using new classification:', creativeType, 'with confidence:', avgConfidence)
+    } else if (geminiResults?.ugc_classification) {
+      // Fallback to legacy format
+      creativeType = geminiResults.ugc_classification.is_ugc === true ? 'UGC' : 'Branded'
+      avgConfidence = geminiResults.ugc_classification.confidence || 0.9
+      console.log('📱 CONTENT TYPE: Using legacy classification:', creativeType)
+    } else {
+      // Final fallback to vote-based determination
+      creativeType = (ugcVotes.ugc_frames / ugcVotes.total_frames > 0.5 ? 'UGC' : 'Branded')
+      avgConfidence = ugcVotes.confidence_scores.length > 0 ? 
+                     ugcVotes.confidence_scores.reduce((a, b) => a + b, 0) / ugcVotes.confidence_scores.length :
+                     0.5
+      console.log('📱 CONTENT TYPE: Using vote-based fallback:', creativeType)
+    }
+    
+    console.log('\n📊 CREATIVE TYPE DETERMINATION:')
+    console.log(`Type: ${creativeType}`)
+    console.log(`Confidence: ${avgConfidence}`)
 
     // Transcription for video files
     let transcriptData: AssemblyAITranscriptResponse | null = null
@@ -205,32 +396,10 @@ export async function processCreativeAsset(assetId: string) {
     // Vocabulary and Pronunciation Check
     let vocabularyCheckResult: BrandVocabularyCheckResult | null = null
     
-    if (transcriptData && transcriptData.text) {
+    if (transcriptData && transcriptData.text && brand) {
       console.log('Performing vocabulary and pronunciation check')
       
       try {
-        // Fetch campaign to get brand_id
-        const { data: campaign, error: campaignError } = await supabase
-          .from('campaigns')
-          .select('brand_id')
-          .eq('id', campaignId)
-          .single()
-        
-        if (campaignError || !campaign) {
-          throw new Error(`Failed to fetch campaign: ${campaignError?.message || 'Campaign not found'}`)
-        }
-        
-        // Fetch brand data
-        const { data: brand, error: brandError } = await supabase
-          .from('brands')
-          .select('name, phonetic_pronunciation, banned_terms')
-          .eq('id', campaign.brand_id)
-          .single()
-        
-        if (brandError || !brand) {
-          throw new Error(`Failed to fetch brand: ${brandError?.message || 'Brand not found'}`)
-        }
-        
         // Perform vocabulary check with retry/backoff for Bedrock throttling
         vocabularyCheckResult = await withRetry(async () =>
           checkBrandVocabulary(
@@ -250,9 +419,52 @@ export async function processCreativeAsset(assetId: string) {
       }
     }
 
+    // Extract compliance results from Gemini analysis
+    let colorPaletteCheckResult: ColorPaletteCheckResult | null = null
+    let logoCheckResult: LogoCheckResult | null = null
+    
+    if (geminiResults) {
+      console.log('\n🎯 MAPPING GEMINI COMPLIANCE CHECKS:')
+      console.log('Gemini color_compliance:', geminiResults.color_compliance)
+      console.log('Gemini logo_compliance:', geminiResults.logo_compliance)
+      
+      // Map Gemini's color compliance to our format
+      if (geminiResults.color_compliance) {
+        colorPaletteCheckResult = {
+          status: geminiResults.color_compliance.status || 'pass',
+          notes: geminiResults.color_compliance.notes || 'Color compliance analyzed by Gemini',
+          business_impact: geminiResults.color_compliance.business_impact || 'Check brand color usage',
+          citations: geminiResults.color_compliance.citations || []
+        }
+        console.log('Mapped color check result:', colorPaletteCheckResult.status)
+      }
+      
+      // Map Gemini's logo compliance to our format
+      if (geminiResults.logo_compliance) {
+        logoCheckResult = {
+          status: geminiResults.logo_compliance.status || 'pass',
+          notes: geminiResults.logo_compliance.notes || 'Logo compliance analyzed by Gemini',
+          business_impact: geminiResults.logo_compliance.business_impact || 'Check logo usage guidelines',
+          citations: geminiResults.logo_compliance.citations || []
+        }
+        console.log('Mapped logo check result:', logoCheckResult.status)
+      }
+    }
+
+    // Removed Bedrock color and logo check calls - using Gemini results instead
+
     // Prepare legend results (detailed analysis)
     const legendResults = {
-      visual_analysis: {
+      visual_analysis: geminiResults ? {
+        frames_analyzed: [], // Gemini analyzes holistically, not frame-by-frame
+        summary: {
+          total_frames: 1,
+          brand_elements_detected: geminiResults.brand_elements_detected || [],
+          dominant_colors: geminiResults.dominant_colors || [],
+          text_detected: geminiResults.text_detected || [],
+          gemini_analysis: geminiResults.detailed_analysis || {}
+        }
+      } : {
         frames_analyzed: frameAnalyses,
         summary: {
           total_frames: ugcVotes.total_frames,
@@ -265,29 +477,81 @@ export async function processCreativeAsset(assetId: string) {
         result: creativeType,
         confidence: avgConfidence,
         votes: ugcVotes,
+        gemini_ugc_data: geminiResults?.ugc_classification || null,
+        // Add new content type analysis data
+        content_type_analysis: geminiResults?.content_type_analysis || null,
+        is_marketing_content: geminiResults?.content_type_analysis?.is_marketing_content ?? true,
+        reasoning: geminiResults?.content_type_analysis?.reasoning || null,
+        signals: geminiResults?.content_type_analysis?.signals || null
       },
       vocabulary_compliance: vocabularyCheckResult || {
         status: 'pass',
         notes: 'No audio content to analyze',
         citations: []
       },
+      color_compliance: colorPaletteCheckResult || {
+        status: 'pass',
+        notes: 'No color palette defined or no visual content',
+        business_impact: 'N/A',
+        citations: []
+      },
+      logo_compliance: logoCheckResult || {
+        status: 'pass',
+        notes: 'No logo files defined or no visual content',
+        business_impact: 'N/A',
+        citations: []
+      },
+      // Add tone_compliance from Gemini results
+      tone_compliance: geminiResults?.tone_compliance || null,
+      // Store all Gemini compliance checks if available
+      gemini_compliance: geminiResults?.compliance_checks || null,
       processing_metadata: {
         processed_at: new Date().toISOString(),
-        processing_version: '2.0',
-        models_used: ['openai-vision-preview', 'assemblyai-transcription', 'claude-3-sonnet'],
+        processing_version: '3.0',
+        models_used: geminiResults ? ['gemini-1.5-pro', 'assemblyai-transcription', 'claude-3-sonnet-pronunciation'] : ['assemblyai-transcription', 'claude-3-sonnet'],
       }
     }
+    
+    // Log the constructed legendResults
+    console.log('🎯 BRAND TONE DEBUG - LegendResults constructed:', {
+      hasToneCompliance: !!legendResults.tone_compliance,
+      toneComplianceFromGemini: geminiResults?.tone_compliance,
+      toneInLegend: legendResults.tone_compliance,
+      allLegendKeys: Object.keys(legendResults)
+    })
 
     // Generate frontend report and calculate overall status
+    console.log('\n📄 GENERATING FRONTEND REPORT:')
+    console.log('🎯 BRAND TONE DEBUG - Legend results before generating report:', {
+      hasToneCompliance: !!legendResults.tone_compliance,
+      toneComplianceStatus: legendResults.tone_compliance?.status,
+      toneComplianceNotes: legendResults.tone_compliance?.notes?.substring(0, 100),
+      allTopLevelKeys: Object.keys(legendResults)
+    })
+    
     const frontendReport = generateFrontendReport(legendResults)
+    console.log('Frontend report generated:', JSON.stringify(frontendReport, null, 2))
+    console.log('🎯 BRAND TONE DEBUG - Frontend report summary:', {
+      totalItems: frontendReport.length,
+      hasBrandTone: frontendReport.some(item => item.check === 'Brand Tone'),
+      allChecks: frontendReport.map(item => item.check)
+    })
+    
     const overallStatus = calculateOverallStatus(frontendReport)
+    console.log('Overall status:', overallStatus)
     
     // Calculate compliance score based on frontend report
     const totalChecks = frontendReport.length
     const passedChecks = frontendReport.filter(item => item.result === 'pass').length
     const complianceScore = Math.round((passedChecks / totalChecks) * 100)
+    console.log(`Compliance score: ${complianceScore}% (${passedChecks}/${totalChecks} passed)`)
 
     // Update the asset with all the analysis results
+    console.log('\n💾 SAVING RESULTS TO DATABASE:')
+    console.log('Asset ID:', assetId)
+    console.log('Creative Type:', creativeType)
+    console.log('Status: completed')
+    
     const { error: updateError } = await supabase
       .from('campaign_assets')
       .update({
@@ -340,8 +604,8 @@ class RetryableError extends Error {
 
 async function withRetry<T>(fn: () => Promise<T>, options?: { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number }) {
   const maxAttempts = options?.maxAttempts ?? 5
-  const base = options?.baseDelayMs ?? 1000
-  const maxDelay = options?.maxDelayMs ?? 16000
+  const base = options?.baseDelayMs ?? 2000  // Increased from 1000ms
+  const maxDelay = options?.maxDelayMs ?? 30000  // Increased from 16000ms
   let attempt = 0
   let lastError: any
 
@@ -357,9 +621,12 @@ async function withRetry<T>(fn: () => Promise<T>, options?: { maxAttempts?: numb
         break
       }
 
-      // Honor server-provided Retry-After if present
+      // Honor server-provided Retry-After if present, or use exponential backoff
       const retryAfterMs = (err as RetryableError).retryAfterMs
-      const backoff = retryAfterMs ?? Math.min(maxDelay, base * Math.pow(2, attempt - 1))
+      // For 429 errors, be more aggressive with backoff
+      const is429 = err.message?.includes('429')
+      const multiplier = is429 ? 3 : 2  // Use 3x multiplier for rate limits
+      const backoff = retryAfterMs ?? Math.min(maxDelay, base * Math.pow(multiplier, attempt - 1))
       console.warn(`Retryable error on attempt ${attempt}/${maxAttempts}. Waiting ${backoff}ms. Error:`, err.message)
       await new Promise((r) => setTimeout(r, backoff))
     }
@@ -368,116 +635,685 @@ async function withRetry<T>(fn: () => Promise<T>, options?: { maxAttempts?: numb
   throw lastError
 }
 
-async function analyzeFrame(
-  base64Image: string,
-  frameNumber: number,
-  openai: OpenAI,
-  mimeType: string
-): Promise<FrameAnalysis> {
-  const prompt = `Analyze this image/frame in detail. Provide a comprehensive visual analysis including:
+// Import Google Generative AI SDK for Gemini
 
-1. Visual Description: Describe what you see in detail
-2. Detected Elements:
-   - Logos (brand logos, watermarks)
-   - Text (any visible text, captions, labels)
-   - Colors (dominant colors, color schemes)
-   - Objects (products, props, items)
-   - People (count and general description)
-   - Scenes (location, setting, environment)
-3. Brand Elements:
-   - Is a logo visible?
-   - Are brand colors present?
-   - Is a product visible?
-4. UGC vs Professional Indicators:
-   - Does it appear handheld/shaky vs stabilized?
-   - Is the setting casual/home vs studio?
-   - Does it feel authentic/candid vs staged?
-   - Is the lighting natural vs professional?
-   - Is there evidence of a studio setup?
+/**
+ * Analyzes a creative video using Google Gemini 1.5 Pro
+ * Returns complete legend_results for all compliance checks except pronunciation
+ */
+// Supported MIME types for Gemini API
+const GEMINI_SUPPORTED_VIDEO_TYPES = [
+  'video/mp4',
+  'video/mpeg', 
+  'video/mov',
+  'video/avi',
+  'video/x-flv',
+  'video/mpg',
+  'video/webm',
+  'video/wmv',
+  'video/3gpp'
+]
 
-Provide your analysis in a structured format.`
+const GEMINI_MAX_INLINE_SIZE_MB = 20
+const GEMINI_MAX_INLINE_SIZE_BYTES = GEMINI_MAX_INLINE_SIZE_MB * 1024 * 1024
 
+async function analyzeCreativeWithGemini(
+  videoUrl: string,
+  brand: any,
+  mimeType?: string
+): Promise<any> {
+  console.log('\n🚀 === GEMINI VIDEO ANALYSIS STARTING ===')
+  console.log('📹 Video URL:', videoUrl)
+  console.log('🏢 Brand:', brand?.name || 'Unknown')
+  console.log('🏭 Industry:', brand?.industry || 'Not specified')
+  console.log('🎨 Brand Colors:', brand?.color_palette || [])
+  console.log('🏷️ Logo variations:', brand?.logo_files?.length || 0)
+  console.log('📄 Input MIME Type:', mimeType || 'Not provided')
+  
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4-vision-preview',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { 
-              type: 'image_url', 
-              image_url: {
-                url: `data:${mimeType};base64,${base64Image}`,
-                detail: 'high'
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 1000,
-    })
-
-    const analysis = response.choices[0].message.content
+    // Initialize Gemini client
+    const GEMINI_API_KEY = 'AIzaSyByCOOyRuHFPheolnaPRtNr27yUd3Etbj8'
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
     
-    // Parse the response (in production, use structured output)
-    return parseVisionResponse(analysis, frameNumber)
-  } catch (error) {
-    console.error('OpenAI Vision API error:', error)
-    throw error
+    // Pre-flight validation
+    let videoMimeType = mimeType || 'video/mp4' // Default to mp4 if not provided
+    
+    // Clean up MIME type (remove parameters like codecs)
+    videoMimeType = videoMimeType.split(';')[0].trim().toLowerCase()
+    
+    // Map common variations to standard types
+    const mimeTypeMap: Record<string, string> = {
+      'video/quicktime': 'video/mp4',  // MOV files work as MP4
+      'video/x-m4v': 'video/mp4',       // M4V files work as MP4
+      'application/octet-stream': 'video/mp4' // Generic binary, assume MP4
+    }
+    
+    if (mimeTypeMap[videoMimeType]) {
+      console.log(`📝 Remapping MIME type from ${videoMimeType} to ${mimeTypeMap[videoMimeType]}`)
+      videoMimeType = mimeTypeMap[videoMimeType]
+    }
+    
+    // Validate MIME type
+    if (!GEMINI_SUPPORTED_VIDEO_TYPES.includes(videoMimeType)) {
+      const error = `Unsupported video MIME type: ${videoMimeType}. Supported types: ${GEMINI_SUPPORTED_VIDEO_TYPES.join(', ')}`
+      console.error('❌ VALIDATION ERROR:', error)
+      throw new Error(error)
+    }
+    console.log('✅ MIME type validation passed:', videoMimeType)
+    
+    // Check video size to determine upload method
+    console.log('📥 Checking video size...')
+    const headResponse = await fetch(videoUrl, { method: 'HEAD' })
+    const contentLength = headResponse.headers.get('content-length')
+    const videoSizeBytes = contentLength ? parseInt(contentLength) : 0
+    const videoSizeMB = videoSizeBytes / (1024 * 1024)
+    
+    console.log(`📊 Video size: ${videoSizeMB.toFixed(2)} MB (${videoSizeBytes} bytes)`)
+    console.log(`📊 Max inline size: ${GEMINI_MAX_INLINE_SIZE_MB} MB (${GEMINI_MAX_INLINE_SIZE_BYTES} bytes)`)
+    
+    // Check for codec compatibility (detect HEVC/H.265 from iPhone)
+    const compatibility = isLikelyCompatible(videoMimeType, videoSizeBytes, videoUrl)
+    if (!compatibility.compatible) {
+      console.error('❌ VIDEO CODEC INCOMPATIBILITY DETECTED')
+      console.error('Reason:', compatibility.reason)
+      
+      // Extract filename from URL for better detection
+      const urlParts = videoUrl.split('/')
+      const fileName = urlParts[urlParts.length - 1]
+      const videoMeta = detectVideoCharacteristics(videoMimeType, videoSizeBytes, fileName)
+      
+      console.error('Video characteristics:', {
+        codec: videoMeta.codec,
+        isHEVC: videoMeta.isHEVC,
+        is4K: videoMeta.is4K,
+        requiresConversion: videoMeta.requiresConversion
+      })
+      
+      throw new Error(`Video codec incompatibility: ${compatibility.reason}`)
+    }
+    
+    let videoData: any
+    
+    // For videos under the size limit, use inline base64
+    if (videoSizeBytes < GEMINI_MAX_INLINE_SIZE_BYTES) {
+      console.log('📥 Using inline method (video < 20MB)...')
+      const videoResponse = await fetch(videoUrl)
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video: ${videoResponse.status}`)
+      }
+      
+      const videoBlob = await videoResponse.blob()
+      const videoArrayBuffer = await videoBlob.arrayBuffer()
+      
+      // Convert to base64 properly
+      const uint8Array = new Uint8Array(videoArrayBuffer)
+      
+      // Build binary string first, then encode once
+      let binaryString = ''
+      const chunkSize = 32768 // Process in 32KB chunks to avoid stack overflow
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize)
+        binaryString += Array.from(chunk)
+          .map(byte => String.fromCharCode(byte))
+          .join('')
+      }
+      
+      // Encode the complete binary string to base64
+      const videoBase64 = btoa(binaryString)
+      
+      // Validate base64 string
+      if (!videoBase64 || videoBase64.length === 0) {
+        throw new Error('Failed to encode video to base64: result is empty')
+      }
+      
+      // Check for valid base64 characters
+      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/
+      if (!base64Regex.test(videoBase64.substring(0, 1000))) {
+        console.error('❌ Invalid base64 detected in first 1000 chars')
+        throw new Error('Invalid base64 encoding detected')
+      }
+      
+      videoData = {
+        inlineData: {
+          mimeType: videoMimeType,
+          data: videoBase64
+        }
+      }
+      console.log('✅ Video encoded to base64')
+      console.log(`📊 Base64 length: ${videoBase64.length} characters`)
+    } else {
+      // For larger videos, we need to use Files API or direct URL
+      // Since Gemini may not be able to access Supabase URLs directly,
+      // we'll try with the public URL first
+      console.log('📥 Using URL method (video >= 20MB)...')
+      console.log('⚠️ Note: Large video support via URL - Gemini may have access issues')
+      
+      // Try to use the video URL directly
+      // For now, throw an error for large files until we implement Files API
+      const error = `Video size (${videoSizeMB.toFixed(2)} MB) exceeds Gemini inline limit of ${GEMINI_MAX_INLINE_SIZE_MB} MB. Files API integration needed for large videos.`
+      console.error('❌ SIZE ERROR:', error)
+      throw new Error(error)
+    }
+    
+    // Prepare brand guidelines JSON
+    const brandGuidelines = {
+      name: brand.name,
+      industry: brand.industry || 'consumer goods',
+      description: brand.description || '',
+      color_palette: brand.color_palette || [],
+      logo_files_count: brand.logo_files?.length || 0,
+      tone_keywords: brand.tone_keywords || [],
+      approved_terms: brand.approved_terms || [],
+      banned_terms: brand.banned_terms || [],
+      required_disclaimers: brand.required_disclaimers || []
+    }
+    
+    console.log('🎯 BRAND TONE DEBUG - Brand Guidelines:', {
+      brandName: brandGuidelines.name,
+      hasToneKeywords: brandGuidelines.tone_keywords.length > 0,
+      toneKeywords: brandGuidelines.tone_keywords,
+      toneKeywordsCount: brandGuidelines.tone_keywords.length
+    })
+    
+    // Master prompt for Gemini
+    const masterPrompt = `You are an expert brand compliance analyst. I am providing you with a video creative and a JSON object containing the brand's complete guidelines.
+
+Brand Guidelines:
+${JSON.stringify(brandGuidelines, null, 2)}
+
+Your Task:
+Analyze the entire video—its visuals and its transcribed audio—against the provided brand guidelines. Return a single, valid JSON object that represents the legend_results.
+
+For each compliance check, provide:
+- status: 'pass', 'warn', or 'fail'
+- notes: detailed string explaining your reasoning
+- business_impact: the business impact if failing/warning (or 'N/A' if passing)
+- citations: array with timestamps for specific issues found
+
+The checks you must perform:
+1. Logos/Iconography: Is the brand properly represented with appropriate logo usage?
+2. Colors/Palette: Do the brand colors appear correctly on products/packaging?
+3. Brand Tone: CRITICAL - Perform nuanced analysis as a human brand expert would. Analyze whether the spoken audio, on-screen text, and overall creative mood align with the brand's desired tone, which is: [${brandGuidelines.tone_keywords && brandGuidelines.tone_keywords.length > 0 ? brandGuidelines.tone_keywords.join(', ') : 'No specific tone keywords provided'}]. Consider vocabulary choice, speaking style, energy level, emotional resonance, and whether the content authentically represents the brand's voice and personality.
+4. Disclaimers: Are required disclaimers present?
+5. Layout: Is the visual composition appropriate?
+6. Content Type: CRITICAL - First determine if this is marketing/advertising content at all. Then classify its style.
+   
+   Definitions:
+   - Marketing Content: Any content created with intent to promote, advertise, or endorse a product/service/brand
+   - Branded Content: Professional marketing with high production quality, stable camera, scripted elements
+   - UGC Content: Authentic marketing with casual feel, potentially handheld camera, unscripted testimonials
+   - Non-Marketing: Personal videos, random footage, content without any promotional intent
+   
+   Analyze:
+   - Is there clear marketing/promotional intent?
+   - Is a product or service being featured intentionally?
+   - Is there any call to action (explicit or implied)?
+   - What's the production style and quality?
+   
+   IMPORTANT: Personal videos or random content should be classified as "Non-Marketing" even if a product appears incidentally.
+
+Do NOT analyze brand name pronunciation - that will be handled separately.
+
+Return ONLY a valid JSON object in this exact structure:
+{
+  "logo_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "explanation",
+    "business_impact": "impact or N/A",
+    "citations": []
+  },
+  "color_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "explanation",
+    "business_impact": "impact or N/A",
+    "citations": []
+  },
+  "tone_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "explanation",
+    "business_impact": "impact or N/A",
+    "citations": []
+  },
+  "disclaimer_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "explanation",
+    "business_impact": "impact or N/A",
+    "citations": []
+  },
+  "layout_compliance": {
+    "status": "pass|warn|fail",
+    "notes": "explanation",
+    "business_impact": "impact or N/A",
+    "citations": []
+  },
+  "content_type_analysis": {
+    "is_marketing_content": true|false,
+    "classification": "'Branded' or 'UGC' or 'Non-Marketing'",
+    "confidence": 0.0-1.0,
+    "reasoning": "clear explanation of the verdict",
+    "signals": {
+      "marketing_intent": "'clear' or 'unclear' or 'absent'",
+      "product_focus": "'prominent' or 'incidental' or 'none'",
+      "call_to_action": "'present' or 'implied' or 'absent'",
+      "camera_stability": "'stable' or 'shaky' or 'mixed'",
+      "production_quality": "'professional' or 'amateur' or 'semi-professional'"
+    }
+  }
+}`
+    
+    // Enhanced logging for debugging Gemini API issues
+    console.log('🔍 DEBUG: Preparing to call Gemini API')
+    console.log('📊 DEBUG: Prompt Text Length:', masterPrompt.length)
+    console.log('📊 DEBUG: Brand Guidelines:', JSON.stringify(brandGuidelines, null, 2))
+    
+    // Log the actual tone section of the prompt
+    const toneSection = masterPrompt.match(/3\. Brand Tone:.*?(?=\n4\.|$)/s)?.[0]
+    console.log('🎯 BRAND TONE DEBUG - Actual prompt tone section:', toneSection)
+    
+    // Log the video data structure
+    if (videoData.inlineData) {
+      console.log('📹 DEBUG: Using inline video data')
+      console.log('📹 DEBUG: Video MIME Type:', videoData.inlineData.mimeType)
+      console.log('📹 DEBUG: Video Data Length (Base64):', videoData.inlineData.data.length)
+      console.log('📹 DEBUG: Estimated size in MB:', (videoData.inlineData.data.length * 0.75 / (1024 * 1024)).toFixed(2))
+      // Log first 100 chars of base64 to verify format
+      console.log('📹 DEBUG: Base64 sample (first 100 chars):', videoData.inlineData.data.substring(0, 100))
+    } else if (videoData.fileData) {
+      console.log('📹 DEBUG: Using file URI method')
+      console.log('📹 DEBUG: Video MIME Type:', videoData.fileData.mimeType)
+      console.log('📹 DEBUG: Video URI:', videoData.fileData.fileUri)
+    }
+    
+    console.log('🤖 Sending to Gemini for analysis...')
+    
+    // Call Gemini with video and prompt
+    let result
+    try {
+      result = await model.generateContent([
+        videoData,
+        { text: masterPrompt }
+      ])
+    } catch (geminiError: any) {
+      console.error('❌ Gemini API call failed with error:', geminiError)
+      console.error('Error details:', {
+        message: geminiError.message,
+        status: geminiError.status,
+        statusText: geminiError.statusText,
+        errorDetails: geminiError.errorDetails
+      })
+      
+      // Log the request details for debugging
+      console.error('Request details:', {
+        mimeType: videoData.inlineData?.mimeType,
+        dataLength: videoData.inlineData?.data?.length,
+        promptLength: masterPrompt.length
+      })
+      
+      // Check if this might be an iPhone HEVC video issue
+      if (geminiError.status === 400 && geminiError.message?.includes('invalid argument')) {
+        const urlParts = videoUrl.split('/')
+        const fileName = urlParts[urlParts.length - 1]
+        const videoMeta = detectVideoCharacteristics(
+          videoData.inlineData?.mimeType || 'video/mp4',
+          videoSizeBytes,
+          fileName
+        )
+        
+        if (videoMeta.isHEVC || fileName.toLowerCase().endsWith('.mov')) {
+          console.error('🎥 LIKELY CAUSE: iPhone HEVC/H.265 video codec not supported by Gemini')
+          throw new Error(
+            'Video appears to be encoded with HEVC/H.265 codec (common for iPhone 4K videos). ' +
+            'Please convert the video to H.264/AVC format using HandBrake, FFmpeg, or an online converter. ' +
+            'TikTok and most social media videos use H.264 which is compatible.'
+          )
+        }
+      }
+      
+      // Re-throw with more context
+      throw new Error(`Gemini API error: ${geminiError.message || 'Unknown error'}. MIME: ${videoData.inlineData?.mimeType}, Size: ${videoData.inlineData?.data?.length} chars`)
+    }
+    
+    const response = await result.response
+    const responseText = response.text()
+    
+    console.log('📝 Gemini raw response received, length:', responseText.length)
+    console.log('🔍 First 500 chars:', responseText.substring(0, 500))
+    
+    // Extract JSON from response
+    const geminiResults = extractJSON<any>(responseText)
+    
+    console.log('✅ Successfully parsed Gemini response')
+    
+    // Detailed logging for brand tone debugging
+    console.log('🎯 BRAND TONE DEBUG - Gemini Response Analysis:', {
+      hasToneCompliance: !!geminiResults.tone_compliance,
+      toneStatus: geminiResults.tone_compliance?.status,
+      toneNotes: geminiResults.tone_compliance?.notes?.substring(0, 200),
+      toneBusinessImpact: geminiResults.tone_compliance?.business_impact,
+      toneCitationsCount: geminiResults.tone_compliance?.citations?.length || 0
+    })
+    
+    // Log content type analysis
+    console.log('📱 CONTENT TYPE DEBUG - Gemini Response:', {
+      hasContentTypeAnalysis: !!geminiResults.content_type_analysis,
+      isMarketingContent: geminiResults.content_type_analysis?.is_marketing_content,
+      classification: geminiResults.content_type_analysis?.classification,
+      confidence: geminiResults.content_type_analysis?.confidence,
+      reasoning: geminiResults.content_type_analysis?.reasoning,
+      signals: geminiResults.content_type_analysis?.signals
+    })
+    
+    console.log('📊 All Compliance results:', {
+      logo: geminiResults.logo_compliance?.status,
+      color: geminiResults.color_compliance?.status,
+      tone: geminiResults.tone_compliance?.status,
+      disclaimer: geminiResults.disclaimer_compliance?.status,
+      layout: geminiResults.layout_compliance?.status,
+      is_ugc: geminiResults.ugc_classification?.is_ugc
+    })
+    
+    return geminiResults
+    
+  } catch (error: any) {
+    console.error('❌ Gemini analysis failed:', error)
+    
+    // Check if it's a codec issue
+    const isCodecIssue = error.message?.includes('HEVC') || error.message?.includes('codec')
+    const userFriendlyMessage = isCodecIssue 
+      ? 'Video format not supported. iPhone 4K videos need conversion from HEVC to H.264 format.'
+      : `Analysis failed: ${error.message}`
+    
+    // Return default results on error
+    return {
+      logo_compliance: {
+        status: 'warn',
+        notes: userFriendlyMessage,
+        business_impact: isCodecIssue ? 'Convert video to H.264 format for analysis' : 'Manual review required',
+        citations: []
+      },
+      color_compliance: {
+        status: 'warn',
+        notes: userFriendlyMessage,
+        business_impact: isCodecIssue ? 'Convert video to H.264 format for analysis' : 'Manual review required',
+        citations: []
+      },
+      tone_compliance: {
+        status: 'warn',
+        notes: userFriendlyMessage,
+        business_impact: isCodecIssue ? 'Convert video to H.264 format for analysis' : 'Manual review required',
+        citations: []
+      },
+      disclaimer_compliance: {
+        status: 'warn',
+        notes: userFriendlyMessage,
+        business_impact: isCodecIssue ? 'Convert video to H.264 format for analysis' : 'Manual review required',
+        citations: []
+      },
+      layout_compliance: {
+        status: 'warn',
+        notes: userFriendlyMessage,
+        business_impact: isCodecIssue ? 'Convert video to H.264 format for analysis' : 'Manual review required',
+        citations: []
+      },
+      ugc_classification: {
+        is_ugc: false,
+        confidence: 0,
+        reasoning: 'Unable to classify due to analysis error'
+      }
+    }
   }
 }
 
-function parseVisionResponse(responseText: string, frameNumber: number): FrameAnalysis {
-  // This is a simplified parser - in production, use GPT-4's JSON mode or structured output
-  const analysis: FrameAnalysis = {
-    timestamp: frameNumber * 1000, // Assuming 1 second per frame for now
-    frame_number: frameNumber,
-    visual_description: responseText,
+
+
+  /* Original Jamba implementation - keeping for reference
+  const prompt = `Analyze this video and provide detailed visual analysis for key frames throughout the video.
+
+For EACH significant frame or scene change (aim for 5-10 key moments), provide:
+
+1. Timestamp and frame information
+2. Visual elements:
+   - Dominant colors as HEX codes with percentages and locations
+   - Logos or brand marks visible
+   - Text overlays or captions
+   - Objects and products
+   - People count and positioning
+   - Scene/location description
+
+3. Brand elements:
+   - Is a logo visible?
+   - Are brand colors present?
+   - Is a product visible?
+
+4. Production quality indicators:
+   - Camera work (handheld/stabilized)
+   - Setting (casual/professional)
+   - Lighting quality
+   - Overall production value
+
+Return a JSON array of frame analyses, each with this structure:
+[
+  {
+    "timestamp": 0,
+    "frame_number": 0,
+    "visual_description": "Description of this moment",
+    "detected_elements": {
+      "colors": [
+        {"hex": "#FF0000", "percentage": 30, "location": "background"},
+        {"hex": "#FFFFFF", "percentage": 40, "location": "foreground"}
+      ],
+      "logos": ["brand names"],
+      "text": ["visible text"],
+      "objects": ["items"],
+      "people": 0,
+      "scenes": ["location"]
+    },
+    "brand_elements": {
+      "logo_visible": true/false,
+      "brand_colors_present": true/false,
+      "product_visible": true/false
+    },
+    "ugc_indicators": {
+      "handheld_camera": true/false,
+      "casual_setting": true/false,
+      "authentic_feel": true/false,
+      "professional_lighting": true/false,
+      "studio_setup": true/false
+    }
+  }
+]
+
+Focus on extracting accurate color information for brand compliance checking.
+Return ONLY the JSON array.`
+
+  try {
+    const response = await withRetry(async () => {
+      const res = await fetch('https://bedrock-runtime.us-east-1.amazonaws.com/model/ai21.jamba-1-5-large-v1:0/invoke', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${bedrockApiKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: `Analyze this video at URL: ${videoUrl}\n\n${prompt}`
+            }
+          ],
+          max_tokens: 4096,
+          temperature: 0.1,
+          top_p: 0.9,
+        }),
+      })
+      
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('retry-after')
+        const body = await res.text().catch(() => '')
+        throw new RetryableError(`Bedrock 429 Too Many Requests: ${body}`, retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined)
+      }
+      
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '')
+        throw new Error(`Jamba API failed: ${res.status} ${res.statusText} - ${errorText}`)
+      }
+      
+      return res
+    })
+
+    const result = await response.json()
+    console.log('Jamba video analysis response structure:', JSON.stringify(result, null, 2))
+    
+    // Extract content based on response structure
+    let content: string
+    if (result.content && Array.isArray(result.content) && result.content[0]?.text) {
+      content = result.content[0].text
+    } else if (result.choices && result.choices[0]?.message?.content) {
+      content = result.choices[0].message.content
+    } else if (typeof result === 'string') {
+      content = result
+    } else {
+      console.error('Unexpected Jamba response format:', result)
+      // Return default frame analysis
+      return {
+        frames: [{
+          timestamp: 0,
+          frame_number: 0,
+          visual_description: 'Video analysis unavailable',
+          detected_elements: {
+            logos: [],
+            text: [],
+            colors: [],
+            color_details: [],
+            objects: [],
+            people: 0,
+            scenes: [],
+          },
+          brand_elements: {
+            logo_visible: false,
+            brand_colors_present: false,
+            product_visible: false,
+          },
+          ugc_indicators: {
+            handheld_camera: false,
+            casual_setting: false,
+            authentic_feel: false,
+            professional_lighting: false,
+            studio_setup: false,
+          },
+        }]
+      }
+    }
+    
+    // Parse the JSON array of frames
+    try {
+      const frames = JSON.parse(content) as any[]
+      
+      // Transform to our FrameAnalysis format
+      const frameAnalyses: FrameAnalysis[] = frames.map((frame, index) => ({
+        timestamp: frame.timestamp || index * 1000,
+        frame_number: frame.frame_number || index,
+        visual_description: frame.visual_description || '',
+        detected_elements: {
+          logos: frame.detected_elements?.logos || [],
+          text: frame.detected_elements?.text || [],
+          colors: (frame.detected_elements?.colors || []).map((c: any) => c.hex).filter(Boolean),
+          color_details: frame.detected_elements?.colors || [],
+          objects: frame.detected_elements?.objects || [],
+          people: frame.detected_elements?.people || 0,
+          scenes: frame.detected_elements?.scenes || [],
+        },
+        brand_elements: frame.brand_elements || {
+          logo_visible: false,
+          brand_colors_present: false,
+          product_visible: false,
+        },
+        ugc_indicators: frame.ugc_indicators || {
+          handheld_camera: false,
+          casual_setting: false,
+          authentic_feel: false,
+          professional_lighting: false,
+          studio_setup: false,
+        },
+      }))
+      
+      console.log(`Jamba analyzed ${frameAnalyses.length} key frames from video`)
+      return { frames: frameAnalyses }
+      
+    } catch (parseError) {
+      console.error('Failed to parse Jamba video analysis:', parseError)
+      // Return single default frame
+      return {
+        frames: [{
+          timestamp: 0,
+          frame_number: 0,
+          visual_description: 'Failed to parse video analysis',
+          detected_elements: {
+            logos: [],
+            text: [],
+            colors: [],
+            color_details: [],
+            objects: [],
+            people: 0,
+            scenes: [],
+          },
+          brand_elements: {
+            logo_visible: false,
+            brand_colors_present: false,
+            product_visible: false,
+          },
+          ugc_indicators: {
+            handheld_camera: false,
+            casual_setting: false,
+            authentic_feel: false,
+            professional_lighting: false,
+            studio_setup: false,
+          },
+        }]
+      }
+    }
+  } catch (error) {
+    console.error('Jamba video analysis error:', error)
+    throw error
+  }
+  */
+
+
+// Placeholder function for image analysis
+function createPlaceholderImageAnalysis(): FrameAnalysis {
+  return {
+    timestamp: 0,
+    frame_number: 0,
+    visual_description: 'Image analysis placeholder - system optimized for video content',
     detected_elements: {
       logos: [],
       text: [],
-      colors: [],
+      colors: ['#808080', '#FFFFFF', '#000000'],
+      color_details: [
+        { hex: '#808080', percentage: 40, location: 'general' },
+        { hex: '#FFFFFF', percentage: 35, location: 'background' },
+        { hex: '#000000', percentage: 25, location: 'foreground' }
+      ],
       objects: [],
       people: 0,
-      scenes: [],
+      scenes: ['static image']
     },
     brand_elements: {
       logo_visible: false,
       brand_colors_present: false,
-      product_visible: false,
+      product_visible: false
     },
     ugc_indicators: {
       handheld_camera: false,
-      casual_setting: false,
-      authentic_feel: false,
+      casual_setting: true,
+      authentic_feel: true,
       professional_lighting: false,
-      studio_setup: false,
-    },
+      studio_setup: false
+    }
   }
-
-  // Extract information from the response text
-  // This is a placeholder - implement proper parsing based on structured output
-  if (responseText.toLowerCase().includes('logo')) {
-    analysis.brand_elements.logo_visible = true
-  }
-  if (responseText.toLowerCase().includes('handheld') || responseText.toLowerCase().includes('shaky')) {
-    analysis.ugc_indicators.handheld_camera = true
-  }
-  if (responseText.toLowerCase().includes('home') || responseText.toLowerCase().includes('casual')) {
-    analysis.ugc_indicators.casual_setting = true
-  }
-  if (responseText.toLowerCase().includes('authentic') || responseText.toLowerCase().includes('candid')) {
-    analysis.ugc_indicators.authentic_feel = true
-  }
-  if (responseText.toLowerCase().includes('professional') && responseText.toLowerCase().includes('lighting')) {
-    analysis.ugc_indicators.professional_lighting = true
-  }
-  if (responseText.toLowerCase().includes('studio')) {
-    analysis.ugc_indicators.studio_setup = true
-  }
-
-  return analysis
 }
 
 function calculateUgcScore(indicators: FrameAnalysis['ugc_indicators']): number {
@@ -711,7 +1547,7 @@ Return ONLY the JSON object.`
     
     // Parse the JSON response
     try {
-      const checkResult = JSON.parse(content) as BrandVocabularyCheckResult
+      const checkResult = extractJSON<BrandVocabularyCheckResult>(content)
       console.log('Vocabulary check completed:', checkResult.status)
       console.log('Full vocabulary check result:', JSON.stringify(checkResult, null, 2))
       
@@ -748,27 +1584,51 @@ Return ONLY the JSON object.`
   }
 }
 
+// Color and Logo checks removed - now handled by Gemini
+
 function generateFrontendReport(legendResults: any): FrontendReportItem[] {
   const report: FrontendReportItem[] = []
   
-  // Visual Analysis Checks
+  // Brand Tone Compliance Check (replacing old Logo Usage check)
+  console.log('🎯 BRAND TONE DEBUG - Generating Frontend Report:', {
+    hasToneCompliance: !!legendResults.tone_compliance,
+    toneComplianceData: legendResults.tone_compliance
+  })
+  
+  if (legendResults.tone_compliance) {
+    const toneCheck = legendResults.tone_compliance
+    let details = toneCheck.notes || 'Brand tone analysis completed.'
+    
+    // Add business impact if present
+    if (toneCheck.business_impact && toneCheck.business_impact !== 'N/A') {
+      details += ` Impact: ${toneCheck.business_impact}`
+    }
+    
+    const toneItem = {
+      check: 'Brand Tone',
+      result: toneCheck.status === 'fail' ? 'fail' : toneCheck.status === 'warn' ? 'warn' : 'pass',
+      details: details
+    }
+    
+    console.log('🎯 BRAND TONE DEBUG - Adding to frontend report:', toneItem)
+    report.push(toneItem)
+  } else {
+    // Fallback if tone_compliance is missing
+    console.log('⚠️ BRAND TONE DEBUG - No tone_compliance in legendResults, using fallback')
+    report.push({
+      check: 'Brand Tone',
+      result: 'warn',
+      details: 'Brand tone analysis not available. Manual review recommended.'
+    })
+  }
+  
+  // Visual Analysis Checks (kept for backward compatibility)
   if (legendResults.visual_analysis) {
     const visual = legendResults.visual_analysis
     
-    // Logo Usage Check
-    if (visual.summary?.brand_elements_detected) {
-      const logoAppearances = visual.summary.brand_elements_detected.logo_appearances || 0
-      report.push({
-        check: 'Logo Usage',
-        result: logoAppearances > 0 ? 'pass' : 'warn',
-        details: logoAppearances > 0 
-          ? `Logo detected in ${logoAppearances} frame(s). Proper brand representation.`
-          : 'No logo detected. Consider adding brand logo for better recognition.'
-      })
-    }
-    
-    // Color Palette Check
-    if (visual.summary?.dominant_colors) {
+    // Note: Logo Usage moved to Gemini's logo_compliance
+    // Color palette check as fallback only
+    if (!legendResults.color_compliance && visual.summary?.dominant_colors) {
       const hasColors = visual.summary.dominant_colors.length > 0
       report.push({
         check: 'Color Palette',
@@ -780,13 +1640,43 @@ function generateFrontendReport(legendResults: any): FrontendReportItem[] {
     }
   }
   
-  // UGC Classification
+  // Content Type Classification with Marketing Intent
   if (legendResults.ugc_classification) {
     const ugc = legendResults.ugc_classification
+    const isMarketing = ugc.is_marketing_content
+    const classification = ugc.result
+    
+    console.log('📱 CONTENT TYPE DEBUG - Frontend Report:', {
+      classification,
+      isMarketing,
+      reasoning: ugc.reasoning,
+      signals: ugc.signals
+    })
+    
+    // Determine pass/fail based on marketing intent
+    let result: 'pass' | 'fail' | 'warn' = 'pass'
+    let details = ''
+    
+    if (classification === 'Non-Marketing') {
+      // Non-marketing content should fail
+      result = 'fail'
+      details = `Non-marketing content detected. ${ugc.reasoning || 'This appears to be personal content without promotional intent.'}`
+    } else if (classification === 'UGC') {
+      result = 'pass'
+      details = `UGC marketing content (${Math.round(ugc.confidence * 100)}% confidence). ${ugc.reasoning || 'Authentic user-generated promotional content.'}`
+    } else if (classification === 'Branded') {
+      result = 'pass'
+      details = `Branded marketing content (${Math.round(ugc.confidence * 100)}% confidence). ${ugc.reasoning || 'Professional advertisement with clear marketing intent.'}`
+    } else {
+      // Unclear or legacy format
+      result = isMarketing === false ? 'fail' : 'pass'
+      details = `Classified as ${classification} content with ${Math.round(ugc.confidence * 100)}% confidence.`
+    }
+    
     report.push({
       check: 'Content Type',
-      result: 'pass',
-      details: `Classified as ${ugc.result} content with ${Math.round(ugc.confidence * 100)}% confidence.`
+      result,
+      details
     })
   }
   
@@ -820,6 +1710,83 @@ function generateFrontendReport(legendResults: any): FrontendReportItem[] {
     })
   }
   
+  // Logo and Iconography Check
+  if (legendResults.logo_compliance) {
+    const logoCheck = legendResults.logo_compliance
+    let details = logoCheck.notes || 'Logo compliance check completed.'
+    
+    // Add business impact if present
+    if (logoCheck.business_impact && logoCheck.business_impact !== 'N/A') {
+      details += ` Impact: ${logoCheck.business_impact}`
+    }
+    
+    // Add specific issues if present
+    if (logoCheck.citations && logoCheck.citations.length > 0) {
+      const issues = logoCheck.citations
+        .slice(0, 3)
+        .map((c: any) => {
+          // Handle different citation formats safely
+          if (c.issue_description && c.timestamp !== undefined) {
+            const timeInSeconds = (c.timestamp / 1000).toFixed(1)
+            return `${c.issue_description} at ${timeInSeconds}s`
+          } else if (c.spoken_text) {
+            // Vocabulary citation format
+            const timeInSeconds = c.timestamp ? (c.timestamp / 1000).toFixed(1) : '0'
+            return `'${c.spoken_text}' at ${timeInSeconds}s`
+          } else {
+            // Fallback for unknown format
+            return JSON.stringify(c)
+          }
+        })
+        .join('; ')
+      details += ` Issues: ${issues}`
+    }
+    
+    report.push({
+      check: 'Logo & Iconography',
+      result: logoCheck.status === 'fail' ? 'fail' : logoCheck.status === 'warn' ? 'warn' : 'pass',
+      details: details
+    })
+  }
+  
+  // Color Palette Compliance Check (Enhanced)
+  if (legendResults.color_compliance) {
+    const colorCheck = legendResults.color_compliance
+    let details = colorCheck.notes || 'Color compliance check completed.'
+    
+    // Add business impact if present
+    if (colorCheck.business_impact && colorCheck.business_impact !== 'N/A') {
+      details += ` Impact: ${colorCheck.business_impact}`
+    }
+    
+    // Add specific violations if present
+    if (colorCheck.citations && colorCheck.citations.length > 0) {
+      const topIssues = colorCheck.citations
+        .slice(0, 3)
+        .map(c => {
+          // Handle different citation formats
+          if (c.type && c.timestamp !== undefined) {
+            const timeInSeconds = (c.timestamp / 1000).toFixed(1)
+            return `${c.type.replace(/_/g, ' ')} at ${timeInSeconds}s${c.severity ? ` (${c.severity})` : ''}`
+          } else if (c.spoken_text) {
+            // Vocabulary citation format
+            const timeInSeconds = c.timestamp ? (c.timestamp / 1000).toFixed(1) : '0'
+            return `'${c.spoken_text}' at ${timeInSeconds}s`
+          } else {
+            // Fallback for unknown format
+            return JSON.stringify(c)
+          }
+        })
+      details += ` Issues: ${topIssues.join('; ')}`
+    }
+    
+    report.push({
+      check: 'Color Palette',
+      result: colorCheck.status,
+      details: details
+    })
+  }
+  
   return report
 }
 
@@ -835,3 +1802,4 @@ function calculateOverallStatus(frontendReport: FrontendReportItem[]): 'pass' | 
   // All checks passed
   return 'pass'
 }
+

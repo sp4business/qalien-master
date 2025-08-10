@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { fetchAuthSession } from '../lib/auth-stubs';
 import Modal from './Modal';
 
 interface CampaignModalProps {
@@ -68,11 +67,12 @@ export default function CampaignModal({ isOpen, onClose, brandId, brandName, onS
     setError(null);
 
     try {
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
+      // TODO: This component needs to be updated to use Clerk auth
+      // For now, this is non-functional
+      const token = null;
 
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error('Campaign creation is currently disabled - auth integration needed');
       }
 
       const payload = {
