@@ -395,39 +395,59 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     
     setIsRetrying(true);
     try {
-      const token = await getToken({ template: 'supabase' });
-      if (!token) throw new Error('No auth token');
-      
-      // Call requeue function for each failed asset
-      const retryPromises = failedAssets.map(async (asset) => {
-        const { data, error } = await supabase.rpc('requeue_failed_asset', {
-          asset_uuid: asset.creative_id
-        });
-        
-        if (error) {
-          console.error(`Failed to retry asset ${asset.name}:`, error);
-          return { success: false, assetId: asset.creative_id };
-        }
-        
-        return { success: true, assetId: asset.creative_id };
+      // Use the campaign-level retry function for efficiency
+      const { data, error } = await supabase.rpc('retry_all_failed_assets', {
+        p_campaign_id: campaignId
       });
       
-      const results = await Promise.all(retryPromises);
-      const successCount = results.filter(r => r.success).length;
+      if (error) {
+        console.error('Failed to retry assets:', error);
+        toast({
+          title: 'Retry failed',
+          description: error.message || 'Unable to retry failed assets. Please try again.',
+          variant: 'error'
+        });
+        return;
+      }
       
-      if (successCount > 0) {
+      // Parse the response
+      const result = data as {
+        success: boolean;
+        retried_count: number;
+        error_count: number;
+        total_failed: number;
+        details?: any[];
+      };
+      
+      console.log('Retry result:', result);
+      
+      if (result.success && result.retried_count > 0) {
         toast({
           title: 'Retry initiated',
-          description: `Requeued ${successCount} of ${failedAssets.length} failed assets for processing.`,
+          description: `Successfully requeued ${result.retried_count} of ${result.total_failed} failed assets for processing.`,
           variant: 'success'
         });
         
-        // Refresh assets list
+        // Clear failed assets from UI immediately for better UX
+        setFailedAssets([]);
+        
+        // Refresh assets list after a short delay
+        setTimeout(async () => {
+          await fetchAssets();
+        }, 1000);
+      } else if (result.error_count > 0) {
+        toast({
+          title: 'Partial retry',
+          description: `Requeued ${result.retried_count} assets. ${result.error_count} could not be retried.`,
+          variant: 'warning'
+        });
+        
+        // Still refresh to update UI
         await fetchAssets();
       } else {
         toast({
           title: 'Retry failed',
-          description: 'Unable to retry failed assets. Please try again.',
+          description: 'No assets could be retried. They may already be processing.',
           variant: 'error'
         });
       }
@@ -435,7 +455,7 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
       console.error('Error retrying failed assets:', error);
       toast({
         title: 'Error',
-        description: 'Failed to retry assets',
+        description: error instanceof Error ? error.message : 'Failed to retry assets',
         variant: 'error'
       });
     } finally {

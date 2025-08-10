@@ -1725,8 +1725,18 @@ function generateFrontendReport(legendResults: any): FrontendReportItem[] {
       const issues = logoCheck.citations
         .slice(0, 3)
         .map((c: any) => {
-          const timeInSeconds = (c.timestamp / 1000).toFixed(1)
-          return `${c.issue_description} at ${timeInSeconds}s`
+          // Handle different citation formats safely
+          if (c.issue_description && c.timestamp !== undefined) {
+            const timeInSeconds = (c.timestamp / 1000).toFixed(1)
+            return `${c.issue_description} at ${timeInSeconds}s`
+          } else if (c.spoken_text) {
+            // Vocabulary citation format
+            const timeInSeconds = c.timestamp ? (c.timestamp / 1000).toFixed(1) : '0'
+            return `'${c.spoken_text}' at ${timeInSeconds}s`
+          } else {
+            // Fallback for unknown format
+            return JSON.stringify(c)
+          }
         })
         .join('; ')
       details += ` Issues: ${issues}`
@@ -1754,8 +1764,18 @@ function generateFrontendReport(legendResults: any): FrontendReportItem[] {
       const topIssues = colorCheck.citations
         .slice(0, 3)
         .map(c => {
-          const timeInSeconds = (c.timestamp / 1000).toFixed(1)
-          return `${c.type.replace(/_/g, ' ')} at ${timeInSeconds}s (${c.severity})`
+          // Handle different citation formats
+          if (c.type && c.timestamp !== undefined) {
+            const timeInSeconds = (c.timestamp / 1000).toFixed(1)
+            return `${c.type.replace(/_/g, ' ')} at ${timeInSeconds}s${c.severity ? ` (${c.severity})` : ''}`
+          } else if (c.spoken_text) {
+            // Vocabulary citation format
+            const timeInSeconds = c.timestamp ? (c.timestamp / 1000).toFixed(1) : '0'
+            return `'${c.spoken_text}' at ${timeInSeconds}s`
+          } else {
+            // Fallback for unknown format
+            return JSON.stringify(c)
+          }
         })
       details += ` Issues: ${topIssues.join('; ')}`
     }
