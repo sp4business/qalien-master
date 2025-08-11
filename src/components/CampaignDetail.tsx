@@ -10,6 +10,8 @@ import CreativeDetailModal from './CreativeDetailModal';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import { useToast } from '@/components/ui/ToastContainer';
+import ExportButton from '@/components/export/ExportButton';
+import { PDFLogger } from '@/utils/pdfLogger';
 
 interface Creative {
   creative_id: string;
@@ -588,20 +590,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
     );
   }
 
-  // Calculate campaign status based on dates
-  const now = new Date();
-  const startDate = campaign.start_date ? new Date(campaign.start_date) : null;
-  const endDate = campaign.end_date ? new Date(campaign.end_date) : null;
-  
-  let status: 'draft' | 'active' | 'completed' = 'draft';
-  if (startDate && endDate) {
-    if (now < startDate) status = 'draft';
-    else if (now > endDate) status = 'completed';
-    else status = 'active';
-  } else if (startDate && now >= startDate) {
-    status = 'active';
-  }
-
   const averageCompliance = creatives.length > 0 
     ? Math.round(creatives.reduce((acc, c) => acc + c.compliance_score, 0) / creatives.length)
     : 0;
@@ -645,16 +633,6 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
                 <h1 className="text-3xl font-semibold mb-2">{campaign.name}</h1>
                 <p className="text-gray-400 mb-4">{campaign.campaign_type || 'Campaign'}</p>
                 <div className="flex items-center gap-6 text-sm">
-                  <span className="text-gray-400">
-                    Status: 
-                    <span className={`ml-2 ${
-                      status === 'active' ? 'text-green-400' : 
-                      status === 'completed' ? 'text-blue-400' : 
-                      'text-yellow-400'
-                    }`}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
-                    </span>
-                  </span>
                   <span className="text-gray-400">Assets: <span className="text-white">{creatives.length}</span></span>
                   <span className="text-gray-400">
                     Compliance: 
@@ -669,11 +647,17 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
                 </div>
               </div>
             </div>
-            <button
-              onClick={handleUploadMedia}
-              disabled={isUploading}
-              className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed rounded-xl transition-colors font-medium"
-            >
+            <div className="flex items-center gap-3">
+              <ExportButton
+                campaign={campaign}
+                assets={creatives}
+                brandId={brandId || undefined}
+              />
+              <button
+                onClick={handleUploadMedia}
+                disabled={isUploading}
+                className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed rounded-xl transition-colors font-medium"
+              >
               {isUploading ? (
                 <>
                   <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -690,7 +674,8 @@ export default function CampaignDetail({ campaignId, brandId }: CampaignDetailPr
                   Upload Assets
                 </>
               )}
-            </button>
+              </button>
+            </div>
           </div>
         </div>
       </div>
