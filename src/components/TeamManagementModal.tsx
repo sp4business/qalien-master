@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useTeamManagement } from '@/hooks/useTeamManagement';
+import { usePendingInvitations } from '@/hooks/usePendingInvitations';
 import { useAuth } from '@clerk/nextjs';
+import { Clock, RefreshCw, XCircle, Mail } from 'lucide-react';
 
 interface TeamManagementModalProps {
   isOpen: boolean;
@@ -34,6 +36,18 @@ export default function TeamManagementModal({
 
   const { user } = useAuth();
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'members' | 'pending'>('members');
+  
+  // Pending invitations hook
+  const { 
+    pendingInvitations, 
+    cancelInvitation, 
+    resendInvitation, 
+    hasPendingInvitation,
+    getInvitationStatus,
+    isCancelling,
+    isResending 
+  } = usePendingInvitations();
   
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('');
@@ -79,6 +93,17 @@ export default function TeamManagementModal({
     const existingMember = members.find(m => m.email.toLowerCase() === inviteEmail.toLowerCase());
     if (existingMember) {
       setError('This user is already a team member');
+      return;
+    }
+
+    // Check for pending invitation
+    const invitationStatus = getInvitationStatus(inviteEmail);
+    if (invitationStatus?.isPending) {
+      if (invitationStatus.isExpiringSoon) {
+        setError(`Invitation already sent (expires in ${Math.round(invitationStatus.hoursUntilExpiration)} hours)`);
+      } else {
+        setError('An invitation is already pending for this email');
+      }
       return;
     }
 
@@ -176,7 +201,14 @@ export default function TeamManagementModal({
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-white">Team Management</h2>
+              <h2 className="text-2xl font-bold text-white flex items-center">
+                Team Management
+                {pendingInvitations.length > 0 && (
+                  <span className="ml-3 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+                    {pendingInvitations.length} pending
+                  </span>
+                )}
+              </h2>
               <p className="text-gray-400 text-sm mt-1">
                 {organization?.name || brandName} Organization
               </p>
@@ -188,6 +220,30 @@ export default function TeamManagementModal({
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex space-x-1 mb-6 bg-[#1A1F2E] p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab('members')}
+              className={`flex-1 px-4 py-2 rounded-md transition-colors ${
+                activeTab === 'members'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Members ({members.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`flex-1 px-4 py-2 rounded-md transition-colors ${
+                activeTab === 'pending'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Pending Invitations ({pendingInvitations.length})
             </button>
           </div>
 
@@ -210,8 +266,9 @@ export default function TeamManagementModal({
             </div>
           ) : (
             <>
-              {/* Active Members */}
-              <div className="mb-8">
+              {/* Active Members Tab */}
+              {activeTab === 'members' && (
+                <div className="mb-8">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">Team Members ({members.length})</h3>
                   {isAdmin && !showInviteForm && (
@@ -358,7 +415,89 @@ export default function TeamManagementModal({
                     </div>
                   ))}
                 </div>
-              </div>
+                </div>
+              )}
+
+              {/* Pending Invitations Tab */}
+              {activeTab === 'pending' && (
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">Pending Invitations</h3>
+                  </div>
+                  
+                  {pendingInvitations.length === 0 ? (
+                    <div className="text-center py-12 bg-[#1A1F2E] rounded-xl border border-gray-700">
+                      <Clock className="w-12 h-12 text-gray-500 mx-auto mb-3" />
+                      <p className="text-gray-400">No pending invitations</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {pendingInvitations.map((invitation) => {
+                        const hoursLeft = Math.max(0, Math.round(invitation.hours_until_expiration));
+                        const daysLeft = Math.floor(hoursLeft / 24);
+                        const displayTime = daysLeft > 0 
+                          ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''}`
+                          : `${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}`;
+                        
+                        return (
+                          <div key={invitation.id} className="bg-[#1A1F2E] rounded-xl p-4 border border-gray-700">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center">
+                                  <Mail className="w-6 h-6 text-gray-400" />
+                                </div>
+                                <div>
+                                  <p className="text-white font-medium">{invitation.email}</p>
+                                  <p className="text-gray-400 text-sm">
+                                    Role: {invitation.role} • Invited {new Date(invitation.created_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center space-x-3">
+                                {invitation.is_expiring_soon ? (
+                                  <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full flex items-center">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    Expires in {displayTime}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">
+                                    {displayTime} left
+                                  </span>
+                                )}
+                                
+                                {isAdmin && (
+                                  <>
+                                    <button
+                                      onClick={() => resendInvitation({ 
+                                        email: invitation.email, 
+                                        role: invitation.role 
+                                      })}
+                                      disabled={isResending}
+                                      className="p-2 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
+                                      title="Resend invitation"
+                                    >
+                                      <RefreshCw className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => cancelInvitation(invitation.id)}
+                                      disabled={isCancelling}
+                                      className="p-2 text-gray-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                                      title="Cancel invitation"
+                                    >
+                                      <XCircle className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Role Information */}
               <div className="mt-8 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">

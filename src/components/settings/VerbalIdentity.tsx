@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, CheckCircle, XCircle, AlertCircle, Volume2, Edit2, Save, X, Plus } from 'lucide-react';
 import { useSupabaseClient } from '@/lib/supabase';
 
@@ -12,6 +12,7 @@ interface VerbalIdentityProps {
     required_disclaimers?: string[];
     approved_terms?: string[];
     banned_terms?: string[];
+    phonetic_pronunciation?: string | null;
   };
   onUpdate: () => void;
 }
@@ -32,6 +33,21 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
   const [newApprovedTerm, setNewApprovedTerm] = useState('');
   const [newBannedTerm, setNewBannedTerm] = useState('');
   const [newDisclaimer, setNewDisclaimer] = useState('');
+
+  // Sync local state when brand prop changes, but only when not editing
+  // This prevents overwriting unsaved changes during editing
+  useEffect(() => {
+    if (!isEditingTone) {
+      setToneKeywords(brand.tone_keywords || []);
+    }
+    if (!isEditingVocabulary) {
+      setApprovedTerms(brand.approved_terms || []);
+      setBannedTerms(brand.banned_terms || []);
+    }
+    if (!isEditingDisclaimers) {
+      setDisclaimers(brand.required_disclaimers || []);
+    }
+  }, [brand, isEditingTone, isEditingVocabulary, isEditingDisclaimers]);
 
   const handleToneSave = async () => {
     try {
@@ -103,24 +119,28 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
     }
   };
 
+
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Verbal Identity</h2>
-        <p className="text-gray-600">Brand voice, tone, and language guidelines</p>
+        <h2 className="text-2xl font-semibold text-white mb-2">Verbal Identity</h2>
+        <p className="text-gray-400">Brand voice, tone, and language guidelines</p>
       </div>
 
       {/* Brand Tone */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
             <Volume2 className="h-5 w-5 text-gray-400" />
             Brand Tone
           </h3>
           {!isEditingTone && (
             <button
-              onClick={() => setIsEditingTone(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm"
+              onClick={() => {
+                setToneKeywords(brand.tone_keywords || []);
+                setIsEditingTone(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors text-sm"
             >
               <Edit2 className="h-4 w-4" />
               Edit
@@ -131,11 +151,11 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               {toneKeywords.map((keyword, index) => (
-                <span key={index} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-sm">
+                <span key={index} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-600/20 text-purple-400 rounded-full text-sm">
                   {keyword}
                   <button
                     onClick={() => setToneKeywords(toneKeywords.filter((_, i) => i !== index))}
-                    className="hover:text-purple-900"
+                    className="hover:text-purple-300"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -148,7 +168,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                 value={newToneKeyword}
                 onChange={(e) => setNewToneKeyword(e.target.value)}
                 placeholder="Add tone keyword"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 onKeyPress={(e) => {
                   if (e.key === 'Enter' && newToneKeyword.trim()) {
                     setToneKeywords([...toneKeywords, newToneKeyword.trim()]);
@@ -158,12 +178,13 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
               />
               <button
                 onClick={() => {
+                  console.log('TONE PLUS CLICKED');
                   if (newToneKeyword.trim()) {
                     setToneKeywords([...toneKeywords, newToneKeyword.trim()]);
                     setNewToneKeyword('');
                   }
                 }}
-                className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                className="p-1 bg-purple-600 hover:bg-purple-700 text-white rounded"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -175,14 +196,14 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                   setToneKeywords(brand.tone_keywords || []);
                   setNewToneKeyword('');
                 }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleToneSave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
                 <Save className="h-4 w-4 inline mr-2" />
                 {isSaving ? 'Saving...' : 'Save'}
@@ -191,10 +212,10 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
           </div>
         ) : (
           <div className="border border-gray-200 rounded-lg p-4">
-            {toneKeywords.length > 0 ? (
+            {(brand.tone_keywords || []).length > 0 ? (
               <div className="flex flex-wrap gap-2">
-                {toneKeywords.map((keyword, index) => (
-                  <span key={index} className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-sm">
+                {(brand.tone_keywords || []).map((keyword, index) => (
+                  <span key={index} className="px-3 py-1 bg-purple-600/20 text-purple-400 rounded-full text-sm">
                     {keyword}
                   </span>
                 ))}
@@ -209,14 +230,18 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
       {/* Brand Vocabulary */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-gray-400" />
             Brand Vocabulary
           </h3>
           {!isEditingVocabulary && (
             <button
-              onClick={() => setIsEditingVocabulary(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm"
+              onClick={() => {
+                setApprovedTerms(brand.approved_terms || []);
+                setBannedTerms(brand.banned_terms || []);
+                setIsEditingVocabulary(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors text-sm"
             >
               <Edit2 className="h-4 w-4" />
               Edit
@@ -228,14 +253,14 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
           <div className="space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
               {/* Approved Terms Edit */}
-              <div className="border border-gray-200 rounded-lg p-4">
+              <div className="border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <CheckCircle className="h-5 w-5 text-green-500" />
-                  <h4 className="font-medium text-gray-900">Approved Terms</h4>
+                  <h4 className="font-medium text-white">Approved Terms</h4>
                 </div>
                 <div className="space-y-2 mb-3">
                   {approvedTerms.map((word, index) => (
-                    <div key={index} className="flex items-center justify-between px-3 py-1.5 bg-green-50 text-green-700 rounded-md text-sm">
+                    <div key={index} className="flex items-center justify-between px-3 py-1.5 bg-green-500/20 text-green-400 rounded-md text-sm">
                       <span>{word}</span>
                       <button
                         onClick={() => setApprovedTerms(approvedTerms.filter((_, i) => i !== index))}
@@ -252,7 +277,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                     value={newApprovedTerm}
                     onChange={(e) => setNewApprovedTerm(e.target.value)}
                     placeholder="Add approved term"
-                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="flex-1 px-2 py-1 border border-gray-700 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     onKeyPress={(e) => {
                       if (e.key === 'Enter' && newApprovedTerm.trim()) {
                         setApprovedTerms([...approvedTerms, newApprovedTerm.trim()]);
@@ -262,6 +287,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                   />
                   <button
                     onClick={() => {
+                      console.log('APPROVED PLUS CLICKED');
                       if (newApprovedTerm.trim()) {
                         setApprovedTerms([...approvedTerms, newApprovedTerm.trim()]);
                         setNewApprovedTerm('');
@@ -275,14 +301,14 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
               </div>
 
               {/* Banned Terms Edit */}
-              <div className="border border-gray-200 rounded-lg p-4">
+              <div className="border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <XCircle className="h-5 w-5 text-red-500" />
-                  <h4 className="font-medium text-gray-900">Banned Terms</h4>
+                  <h4 className="font-medium text-white">Banned Terms</h4>
                 </div>
                 <div className="space-y-2 mb-3">
                   {bannedTerms.map((word, index) => (
-                    <div key={index} className="flex items-center justify-between px-3 py-1.5 bg-red-50 text-red-700 rounded-md text-sm">
+                    <div key={index} className="flex items-center justify-between px-3 py-1.5 bg-red-500/20 text-red-400 rounded-md text-sm">
                       <span>{word}</span>
                       <button
                         onClick={() => setBannedTerms(bannedTerms.filter((_, i) => i !== index))}
@@ -299,7 +325,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                     value={newBannedTerm}
                     onChange={(e) => setNewBannedTerm(e.target.value)}
                     placeholder="Add banned term"
-                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                    className="flex-1 px-2 py-1 border border-gray-700 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
                     onKeyPress={(e) => {
                       if (e.key === 'Enter' && newBannedTerm.trim()) {
                         setBannedTerms([...bannedTerms, newBannedTerm.trim()]);
@@ -330,14 +356,14 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                   setNewApprovedTerm('');
                   setNewBannedTerm('');
                 }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleVocabularySave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
                 <Save className="h-4 w-4 inline mr-2" />
                 {isSaving ? 'Saving...' : 'Save'}
@@ -350,12 +376,12 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
             <div className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle className="h-5 w-5 text-green-500" />
-                <h4 className="font-medium text-gray-900">Approved Terms</h4>
+                <h4 className="font-medium text-white">Approved Terms</h4>
               </div>
-              {approvedTerms.length > 0 ? (
+              {(brand.approved_terms || []).length > 0 ? (
                 <div className="space-y-2">
-                  {approvedTerms.map((word, index) => (
-                    <div key={index} className="px-3 py-1.5 bg-green-50 text-green-700 rounded-md text-sm">
+                  {(brand.approved_terms || []).map((word, index) => (
+                    <div key={index} className="px-3 py-1.5 bg-green-500/20 text-green-400 rounded-md text-sm">
                       {word}
                     </div>
                   ))}
@@ -369,12 +395,12 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
             <div className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <XCircle className="h-5 w-5 text-red-500" />
-                <h4 className="font-medium text-gray-900">Banned Terms</h4>
+                <h4 className="font-medium text-white">Banned Terms</h4>
               </div>
-              {bannedTerms.length > 0 ? (
+              {(brand.banned_terms || []).length > 0 ? (
                 <div className="space-y-2">
-                  {bannedTerms.map((word, index) => (
-                    <div key={index} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-md text-sm">
+                  {(brand.banned_terms || []).map((word, index) => (
+                    <div key={index} className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-md text-sm">
                       {word}
                     </div>
                   ))}
@@ -390,14 +416,17 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
       {/* Disclaimers */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-gray-400" />
             Required Disclaimers
           </h3>
           {!isEditingDisclaimers && (
             <button
-              onClick={() => setIsEditingDisclaimers(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm"
+              onClick={() => {
+                setDisclaimers(brand.required_disclaimers || []);
+                setIsEditingDisclaimers(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors text-sm"
             >
               <Edit2 className="h-4 w-4" />
               Edit
@@ -410,7 +439,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
             {disclaimers.map((disclaimer, index) => (
               <div key={index} className="border border-gray-200 rounded-lg p-4 bg-amber-50">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm text-gray-700 flex-1">{disclaimer}</p>
+                  <p className="text-sm text-gray-300 flex-1">{disclaimer}</p>
                   <button
                     onClick={() => setDisclaimers(disclaimers.filter((_, i) => i !== index))}
                     className="text-red-600 hover:text-red-700 flex-shrink-0"
@@ -426,7 +455,7 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                 onChange={(e) => setNewDisclaimer(e.target.value)}
                 placeholder="Add disclaimer text"
                 rows={2}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <button
                 onClick={() => {
@@ -447,14 +476,14 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
                   setDisclaimers(brand.required_disclaimers || []);
                   setNewDisclaimer('');
                 }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDisclaimersSave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
                 <Save className="h-4 w-4 inline mr-2" />
                 {isSaving ? 'Saving...' : 'Save'}
@@ -462,11 +491,11 @@ export default function VerbalIdentity({ brand, onUpdate }: VerbalIdentityProps)
             </div>
           </div>
         ) : (
-          disclaimers.length > 0 ? (
+          (brand.required_disclaimers || []).length > 0 ? (
             <div className="space-y-3">
-              {disclaimers.map((disclaimer, index) => (
+              {(brand.required_disclaimers || []).map((disclaimer, index) => (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 bg-amber-50">
-                  <p className="text-sm text-gray-700">{disclaimer}</p>
+                  <p className="text-sm text-gray-300">{disclaimer}</p>
                 </div>
               ))}
             </div>

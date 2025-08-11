@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Building2, Globe, FileText, Calendar, Edit2, Save, X } from 'lucide-react';
+import { Building2, Globe, FileText, Calendar, Edit2, Save, X, Volume2 } from 'lucide-react';
 import { useSupabaseClient } from '@/lib/supabase';
 
 interface CompanyInfoProps {
@@ -14,6 +14,7 @@ interface CompanyInfoProps {
     website: string;
     created_at: string;
     updated_at: string;
+    phonetic_pronunciation?: string | null;
   };
   onUpdate: () => void;
 }
@@ -27,7 +28,8 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
     brand_name: brandName,
     industry: brand.industry,
     description: brand.description,
-    website: brand.website
+    website: brand.website,
+    phonetic_pronunciation: brand.phonetic_pronunciation || ''
   });
 
   const formatDate = (dateString: string) => {
@@ -48,6 +50,7 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
           industry: formData.industry,
           description: formData.description,
           website: formData.website,
+          phonetic_pronunciation: formData.phonetic_pronunciation || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', brand.id);
@@ -78,13 +81,13 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Company Information</h2>
-          <p className="text-gray-600">Basic information about your brand</p>
+          <h2 className="text-2xl font-semibold text-white mb-2">Company Information</h2>
+          <p className="text-gray-400">Basic information about your brand</p>
         </div>
         {!isEditing ? (
           <button
             onClick={() => setIsEditing(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
           >
             <Edit2 className="h-4 w-4" />
             Edit
@@ -93,7 +96,7 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={handleCancel}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors"
             >
               <X className="h-4 w-4" />
               Cancel
@@ -101,7 +104,7 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save'}
@@ -112,11 +115,11 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
 
       <div className="grid gap-6">
         {/* Brand Name */}
-        <div className="border border-gray-200 rounded-lg p-4">
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#1A1F2E]">
           <div className="flex items-start gap-3">
-            <Building2 className="h-5 w-5 text-gray-400 mt-0.5" />
+            <Building2 className="h-5 w-5 text-gray-500 mt-0.5" />
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-300 mb-1">
                 Brand Name
               </label>
               {isEditing ? (
@@ -124,21 +127,51 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
                   type="text"
                   value={formData.brand_name}
                   onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               ) : (
-                <p className="text-gray-900">{brandName}</p>
+                <p className="text-white">{brandName}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Phonetic Pronunciation */}
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#1A1F2E]">
+          <div className="flex items-start gap-3">
+            <Volume2 className="h-5 w-5 text-gray-500 mt-0.5" />
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Phonetic Pronunciation
+              </label>
+              {isEditing ? (
+                <div>
+                  <input
+                    type="text"
+                    value={formData.phonetic_pronunciation}
+                    onChange={(e) => setFormData({ ...formData, phonetic_pronunciation: e.target.value })}
+                    placeholder="e.g., ko-kah KOH-lah for 'Coca-Cola'"
+                    className="w-full px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    How should "{brandName}" be pronounced? This ensures AI correctly pronounces your brand.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-white">
+                  {brand.phonetic_pronunciation || <span className="text-gray-500 italic">Not specified</span>}
+                </p>
               )}
             </div>
           </div>
         </div>
 
         {/* Industry */}
-        <div className="border border-gray-200 rounded-lg p-4">
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#1A1F2E]">
           <div className="flex items-start gap-3">
-            <FileText className="h-5 w-5 text-gray-400 mt-0.5" />
+            <FileText className="h-5 w-5 text-gray-500 mt-0.5" />
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-300 mb-1">
                 Industry
               </label>
               {isEditing ? (
@@ -146,21 +179,21 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
                   type="text"
                   value={formData.industry}
                   onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               ) : (
-                <p className="text-gray-900">{brand.industry}</p>
+                <p className="text-white">{brand.industry}</p>
               )}
             </div>
           </div>
         </div>
 
         {/* Description */}
-        <div className="border border-gray-200 rounded-lg p-4">
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#1A1F2E]">
           <div className="flex items-start gap-3">
-            <FileText className="h-5 w-5 text-gray-400 mt-0.5" />
+            <FileText className="h-5 w-5 text-gray-500 mt-0.5" />
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-300 mb-1">
                 Description
               </label>
               {isEditing ? (
@@ -168,10 +201,10 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               ) : (
-                <p className="text-gray-900 whitespace-pre-wrap">
+                <p className="text-white whitespace-pre-wrap">
                   {brand.description || 'No description provided'}
                 </p>
               )}
@@ -180,11 +213,11 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
         </div>
 
         {/* Website */}
-        <div className="border border-gray-200 rounded-lg p-4">
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#1A1F2E]">
           <div className="flex items-start gap-3">
-            <Globe className="h-5 w-5 text-gray-400 mt-0.5" />
+            <Globe className="h-5 w-5 text-gray-500 mt-0.5" />
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-300 mb-1">
                 Website
               </label>
               {isEditing ? (
@@ -192,7 +225,7 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
                   type="url"
                   value={formData.website}
                   onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-[#0F1117] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="https://example.com"
                 />
               ) : (
@@ -201,7 +234,7 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
                     href={brand.website} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                    className="text-purple-400 hover:text-purple-300 hover:underline"
                   >
                     {brand.website}
                   </a>
@@ -214,15 +247,15 @@ export default function CompanyInfo({ brand, onUpdate }: CompanyInfoProps) {
         </div>
 
         {/* Metadata */}
-        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+        <div className="border border-gray-700 rounded-lg p-4 bg-[#0F1117]">
           <div className="flex items-start gap-3">
-            <Calendar className="h-5 w-5 text-gray-400 mt-0.5" />
+            <Calendar className="h-5 w-5 text-gray-500 mt-0.5" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Brand Metadata</h3>
-              <div className="space-y-1 text-sm text-gray-600">
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Brand Metadata</h3>
+              <div className="space-y-1 text-sm text-gray-400">
                 <p>Created: {formatDate(brand.created_at)}</p>
                 <p>Last Updated: {formatDate(brand.updated_at)}</p>
-                <p className="font-mono text-xs mt-2">ID: {brand.id}</p>
+                <p className="font-mono text-xs mt-2 text-gray-500">ID: {brand.id}</p>
               </div>
             </div>
           </div>

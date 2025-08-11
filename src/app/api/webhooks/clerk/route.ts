@@ -2,6 +2,7 @@ import { headers } from 'next/headers';
 import { WebhookEvent } from '@svix/webhooks';
 import { Webhook } from 'svix';
 import { clerkClient } from '@clerk/nextjs/server';
+import { createClient } from '@supabase/supabase-js';
 
 // Type definitions for webhook events
 interface OrganizationMembershipEvent {
@@ -101,9 +102,70 @@ export async function POST(req: Request) {
   const eventType = evt.type;
   
   if (eventType === 'organizationInvitation.accepted') {
-    // Log when invitation is accepted
+    // Update our team_invitations table when invitation is accepted
     console.log('Organization invitation accepted:', evt.data);
-    // The actual membership creation happens in organizationMembership.created event
+    
+    try {
+      // Initialize Supabase client
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      // Get invitation data
+      const invitationData = evt.data as any;
+      const { email_address, organization_id, id: invitationId } = invitationData;
+      
+      // Update the invitation status in our database
+      const { error } = await supabase
+        .from('team_invitations')
+        .update({ 
+          status: 'accepted',
+          accepted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('clerk_invitation_id', invitationId)
+        .eq('clerk_org_id', organization_id);
+        
+      if (error) {
+        console.error('Error updating invitation status:', error);
+      } else {
+        console.log('Successfully updated invitation status to accepted');
+      }
+    } catch (error) {
+      console.error('Error processing invitation acceptance:', error);
+    }
+  }
+  
+  if (eventType === 'organizationInvitation.revoked') {
+    // Handle invitation revocation/cancellation
+    console.log('Organization invitation revoked:', evt.data);
+    
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      const invitationData = evt.data as any;
+      const { id: invitationId, organization_id } = invitationData;
+      
+      // Update the invitation status to cancelled
+      const { error } = await supabase
+        .from('team_invitations')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('clerk_invitation_id', invitationId)
+        .eq('clerk_org_id', organization_id);
+        
+      if (error) {
+        console.error('Error updating revoked invitation:', error);
+      } else {
+        console.log('Successfully marked invitation as cancelled');
+      }
+    } catch (error) {
+      console.error('Error processing invitation revocation:', error);
+    }
   }
 
   if (eventType === 'organizationMembership.created') {
