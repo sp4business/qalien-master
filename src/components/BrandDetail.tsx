@@ -96,20 +96,6 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
     return colors[index % colors.length];
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      active: { bg: 'bg-green-500/20', text: 'text-green-400' },
-      draft: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
-      completed: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
-      archived: { bg: 'bg-gray-500/20', text: 'text-gray-400' }
-    };
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.draft;
-    return (
-      <span className={`px-3 py-1 ${config.bg} ${config.text} rounded-full text-sm font-medium`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
-  };
 
   if (isLoading || campaignsLoading) {
     return (
@@ -175,22 +161,7 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
 
           {/* Campaigns Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {campaigns.map((campaign, index) => {
-              // Determine campaign status based on dates
-              const now = new Date();
-              const startDate = campaign.start_date ? new Date(campaign.start_date) : null;
-              const endDate = campaign.end_date ? new Date(campaign.end_date) : null;
-              
-              let status: 'draft' | 'active' | 'completed' = 'draft';
-              if (startDate && endDate) {
-                if (now < startDate) status = 'draft';
-                else if (now > endDate) status = 'completed';
-                else status = 'active';
-              } else if (startDate && now >= startDate) {
-                status = 'active';
-              }
-              
-              return (
+            {campaigns.map((campaign, index) => (
                 <div
                   key={campaign.id}
                   onClick={() => handleCampaignClick(campaign)}
@@ -203,7 +174,6 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
                       </svg>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      {getStatusBadge(status)}
                       <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -249,8 +219,7 @@ export default function BrandDetail({ brandId }: BrandDetailProps) {
                     </div>
                   )}
                 </div>
-              );
-            })}
+            ))}
           </div>
 
           {/* Empty State - QAlien Style */}

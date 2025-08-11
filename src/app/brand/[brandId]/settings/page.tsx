@@ -26,6 +26,7 @@ interface Brand {
   approved_terms?: string[];
   banned_terms?: string[];
   required_disclaimers?: string[];
+  phonetic_pronunciation?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,10 +79,10 @@ export default function BrandSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-[#1A1F2E]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading brand settings...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading brand settings...</p>
         </div>
       </div>
     );
@@ -89,12 +90,12 @@ export default function BrandSettingsPage() {
 
   if (error || !brand) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-[#1A1F2E]">
         <div className="text-center">
-          <p className="text-red-600 mb-4">{error || 'Brand not found'}</p>
+          <p className="text-red-400 mb-4">{error || 'Brand not found'}</p>
           <button
             onClick={() => router.back()}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
           >
             Go Back
           </button>
@@ -106,21 +107,21 @@ export default function BrandSettingsPage() {
   const ActiveComponent = sections.find(s => s.id === activeSection)?.component;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#1A1F2E]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-[#0F1117] border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <button
                 onClick={() => router.back()}
-                className="mr-4 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="mr-4 p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">{brand.name || brand.brand_name}</h1>
-                <p className="text-sm text-gray-500">Brand Settings</p>
+                <h1 className="text-xl font-semibold text-white">{brand.name || brand.brand_name}</h1>
+                <p className="text-sm text-gray-400">Brand Settings</p>
               </div>
             </div>
           </div>
@@ -131,7 +132,7 @@ export default function BrandSettingsPage() {
         <div className="flex gap-8">
           {/* Sidebar Navigation */}
           <div className="w-64 flex-shrink-0">
-            <nav className="bg-white rounded-lg shadow-sm p-2">
+            <nav className="bg-[#2A3142] rounded-xl p-2">
               {sections.map((section) => {
                 const Icon = section.icon;
                 const isActive = activeSection === section.id;
@@ -142,8 +143,8 @@ export default function BrandSettingsPage() {
                     onClick={() => setActiveSection(section.id)}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                       isActive 
-                        ? section.danger ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600' 
-                        : section.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-50'
+                        ? section.danger ? 'bg-red-500/20 text-red-400' : 'bg-purple-600/20 text-purple-400' 
+                        : section.danger ? 'text-red-400 hover:bg-red-500/10' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                     }`}
                   >
                     <Icon className="h-5 w-5" />
@@ -156,7 +157,7 @@ export default function BrandSettingsPage() {
 
           {/* Main Content */}
           <div className="flex-1">
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-[#2A3142] rounded-xl p-6">
               {ActiveComponent && <ActiveComponent brand={brand} onUpdate={fetchBrandData} />}
             </div>
           </div>

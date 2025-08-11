@@ -22,6 +22,7 @@ interface Creative {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   upload_date: string;
   mime_type: string;
+  thumbnail_url?: string;
   frontend_report?: ComplianceCategory[];
   overall_status?: 'approved' | 'warning' | 'failed' | 'pass' | 'warn' | 'fail';
   analysis?: {
@@ -170,6 +171,41 @@ export default function CreativeDetailModal({ creative, isOpen, onClose }: Creat
               <div className="mb-6 text-sm text-gray-400">
                 Campaign: <span className="text-white">Summer Gelatin Campaign 2024</span>
               </div>
+
+              {/* Media Preview Section */}
+              {creative.thumbnail_url && (
+                <div className="mb-8 bg-[#0F1117] rounded-xl p-4">
+                  <h3 className="text-lg font-medium text-white mb-4">Creative Preview</h3>
+                  {creative.mime_type?.startsWith('video/') ? (
+                    <div className="relative rounded-lg overflow-hidden bg-black">
+                      <video
+                        src={creative.thumbnail_url}
+                        className="w-full max-h-[500px] object-contain"
+                        controls
+                        controlsList="nodownload"
+                        crossOrigin="anonymous"
+                        playsInline
+                        preload="metadata"
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+                  ) : (
+                    <div className="relative rounded-lg overflow-hidden bg-gray-900">
+                      <img
+                        src={creative.thumbnail_url}
+                        alt={creative.name}
+                        className="w-full max-h-[500px] object-contain"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          target.parentElement!.innerHTML = '<div class="flex items-center justify-center h-64 text-gray-500">Failed to load image</div>';
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-green-500/10 rounded-xl p-6 mb-8">
                 <h3 className="text-lg font-medium text-white mb-4">Compliance Score</h3>

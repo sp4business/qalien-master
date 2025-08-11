@@ -20,6 +20,7 @@ interface CreativeCardProps {
 
 export default function CreativeCard({ creative, onClick, onDelete }: CreativeCardProps) {
   const [imageError, setImageError] = useState(false);
+  const [isHoveringVideo, setIsHoveringVideo] = useState(false);
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Approved':
@@ -74,7 +75,18 @@ export default function CreativeCard({ creative, onClick, onDelete }: CreativeCa
       )}
 
       {/* Creative Preview */}
-      <div className="relative h-40 bg-gray-900 rounded-lg mb-4 overflow-hidden" onClick={onClick}>
+      <div 
+        className="relative h-40 bg-gray-900 rounded-lg mb-4 overflow-hidden" 
+        onClick={(e) => {
+          // Don't trigger onClick if clicking on video controls
+          const target = e.target as HTMLElement;
+          if (target.tagName !== 'VIDEO') {
+            onClick();
+          }
+        }}
+        onMouseEnter={() => setIsHoveringVideo(true)}
+        onMouseLeave={() => setIsHoveringVideo(false)}
+      >
         {creative.thumbnail_url && !isVideo && !imageError ? (
           <img 
             src={creative.thumbnail_url} 
@@ -97,6 +109,7 @@ export default function CreativeCard({ creative, onClick, onDelete }: CreativeCa
                     muted
                     playsInline
                     preload="metadata"
+                    controls={isHoveringVideo}
                     onError={() => {
                       console.error('Failed to load video:', creative.thumbnail_url);
                       setImageError(true);

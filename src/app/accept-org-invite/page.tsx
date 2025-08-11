@@ -18,6 +18,8 @@ export default function OrganizationInvitationPage() {
   const [processing, setProcessing] = useState(false);
   const [invitationUrl, setInvitationUrl] = useState('');
   const [initialCheckDone, setInitialCheckDone] = useState(false);
+  const [showMultipleInvitations, setShowMultipleInvitations] = useState(false);
+  const [selectedInvitation, setSelectedInvitation] = useState<any>(null);
 
   useEffect(() => {
     console.log('OrganizationInvitationPage - authLoaded:', authLoaded, 'isSignedIn:', isSignedIn);
@@ -78,14 +80,22 @@ export default function OrganizationInvitationPage() {
     }
   }, [authLoaded, isSignedIn, user, router]);
 
-  const handleAcceptInvitation = async () => {
+  const handleAcceptInvitation = async (invitationToAccept?: any) => {
     setProcessing(true);
     
     // First check if there are pending invitations
     if (userInvitations?.data && userInvitations.data.length > 0) {
-      console.log('Found pending invitations, accepting first one...');
+      // If multiple invitations, show selection UI
+      if (userInvitations.data.length > 1 && !invitationToAccept) {
+        console.log('Multiple invitations found, showing selection UI');
+        setShowMultipleInvitations(true);
+        setProcessing(false);
+        return;
+      }
+      
+      console.log('Accepting invitation...');
       try {
-        const pendingInvitation = userInvitations.data[0];
+        const pendingInvitation = invitationToAccept || userInvitations.data[0];
         await pendingInvitation.accept();
         
         console.log('Invitation accepted via userInvitations API');
@@ -192,6 +202,64 @@ export default function OrganizationInvitationPage() {
         message="Loading..."
         duration={2000}
       />
+    );
+  }
+
+  // Show multiple invitations selection UI
+  if (showMultipleInvitations && userInvitations?.data && userInvitations.data.length > 1) {
+    return (
+      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-8">
+        <div className="max-w-2xl w-full">
+          <div className="bg-[#2A3142] rounded-2xl p-8">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-2">Multiple Organization Invitations</h2>
+              <p className="text-gray-400">You have been invited to join multiple organizations. Please select one:</p>
+            </div>
+
+            {/* Invitations List */}
+            <div className="space-y-3 mb-6">
+              {userInvitations.data.map((invitation: any) => (
+                <button
+                  key={invitation.id}
+                  onClick={() => {
+                    setSelectedInvitation(invitation);
+                    handleAcceptInvitation(invitation);
+                  }}
+                  className="w-full bg-[#1A1F2E] hover:bg-[#252A3C] rounded-xl p-4 text-left transition-colors border border-gray-700 hover:border-purple-500"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-white font-medium text-lg">
+                        {invitation.publicOrganizationData?.name || 'Organization'}
+                      </p>
+                      <p className="text-gray-400 text-sm mt-1">
+                        Invited by: {invitation.publicOrganizationData?.inviterEmail || 'Admin'}
+                      </p>
+                    </div>
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Cancel Button */}
+            <button
+              onClick={() => router.push('/')}
+              className="w-full px-6 py-3 text-gray-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 

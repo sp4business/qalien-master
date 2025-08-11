@@ -15,6 +15,7 @@ interface InvitationRequest {
     role: 'admin' | 'editor' | 'viewer'
   }>
   clerkToken?: string // Optional token in body as fallback
+  isResend?: boolean // Flag to indicate this is a resend of expired invitation
 }
 
 // Map our roles to Clerk organization roles
@@ -45,7 +46,7 @@ Deno.serve(async (req) => {
 
     // Parse request body first to get all data
     const body: InvitationRequest = await req.json()
-    const { organizationId, organizationName, invitations, clerkToken } = body
+    const { organizationId, organizationName, invitations, clerkToken, isResend } = body
 
     // Get the Clerk token from custom header or body
     let token = req.headers.get('x-clerk-token') || clerkToken
@@ -104,6 +105,40 @@ Deno.serve(async (req) => {
 
     for (const invitation of invitations) {
       try {
+        // First, check if we need to handle re-invitation
+        if (!isResend) {
+          // Check for existing invitations in our database
+          const { data: existingInvitation } = await supabase
+            .from('team_invitations')
+            .select('*')
+            .eq('clerk_org_id', organizationId)
+            .eq('email', invitation.email)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (existingInvitation) {
+            if (existingInvitation.status === 'pending') {
+              // Check if invitation is expired
+              const expiresAt = new Date(existingInvitation.expires_at)
+              if (expiresAt > new Date()) {
+                errors.push({
+                  email: invitation.email,
+                  error: `Invitation already pending (expires ${expiresAt.toLocaleDateString()})`
+                })
+                continue
+              }
+            } else if (existingInvitation.status === 'accepted') {
+              errors.push({
+                email: invitation.email,
+                error: 'User is already a member of this organization'
+              })
+              continue
+            }
+            // If expired or rejected, we can proceed with re-invitation
+          }
+        }
+
         // Get the base URL from the request origin or environment
         const origin = req.headers.get('origin')
         const baseUrl = origin || Deno.env.get('PUBLIC_URL') || 'http://localhost:3000'
@@ -147,7 +182,12 @@ Deno.serve(async (req) => {
             if (clerkError.message.includes('already a member')) {
               errorMessage = 'User is already a member of this organization'
             } else if (clerkError.message.includes('already been invited')) {
-              errorMessage = 'User has already been invited'
+              // For re-invitations, we might need to revoke the old one first
+              if (isResend) {
+                errorMessage = 'Please cancel the existing invitation first'
+              } else {
+                errorMessage = 'User has already been invited'
+              }
             } else if (clerkError.code === 'duplicate_record') {
               errorMessage = 'This email has already been invited'
             } else {
@@ -171,21 +211,23 @@ Deno.serve(async (req) => {
           invitationId: clerkInvitation.id
         })
 
-        // Store invitation record in our database for tracking
-        const { error: dbError } = await supabase
-          .from('team_invitations')
-          .insert({
-            clerk_org_id: organizationId,
-            email: invitation.email,
-            role: invitation.role,
-            invited_by_clerk_id: clerkUserId,
-            clerk_invitation_id: clerkInvitation.id,
-            status: 'pending'
+        // Use the database function to handle invitation (insert or update)
+        const { data: invitationResult, error: dbError } = await supabase
+          .rpc('handle_team_invitation', {
+            p_org_id: organizationId,
+            p_email: invitation.email,
+            p_role: invitation.role,
+            p_invited_by: clerkUserId,
+            p_invitation_id: clerkInvitation.id
           })
 
         if (dbError) {
           console.error('Error storing invitation in database:', dbError)
           // Don't fail the whole operation if DB insert fails
+        } else if (invitationResult?.error) {
+          console.error('Invitation handling error:', invitationResult.message)
+        } else {
+          console.log('Invitation stored successfully:', invitationResult)
         }
       } catch (inviteError) {
         console.error('Error sending invitation:', inviteError)

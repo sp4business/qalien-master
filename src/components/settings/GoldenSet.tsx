@@ -142,7 +142,7 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
   const getCreativeTypeColor = (type: 'UGC' | 'Produced') => {
     return type === 'UGC' 
       ? 'bg-purple-100 text-purple-700 border-purple-200' 
-      : 'bg-blue-100 text-blue-700 border-blue-200';
+      : 'bg-purple-600/20 text-purple-400 border-purple-500/30';
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -249,13 +249,13 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Golden Set</h2>
-          <p className="text-gray-600">Perfect example creatives for brand compliance reference</p>
+          <h2 className="text-2xl font-semibold text-white mb-2">Golden Set</h2>
+          <p className="text-gray-400">Perfect example creatives for brand compliance reference</p>
         </div>
         {!isAdding && (
           <button
             onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
           >
             <Plus className="h-4 w-4" />
             Add Creatives
@@ -265,14 +265,14 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
         </div>
       ) : creatives.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {creatives.map((creative) => (
-            <div key={creative.id} className="border border-gray-200 rounded-lg overflow-hidden group">
+            <div key={creative.id} className="border border-gray-700 rounded-lg overflow-hidden group">
               {/* Preview Area */}
-              <div className="aspect-video bg-gray-100 relative">
+              <div className="aspect-video bg-[#0F1117] relative">
                 {creative.file_type?.startsWith('video/') ? (
                   <VideoPreview 
                     src={creative.storage_path.startsWith('http') ? creative.storage_path : `https://oqpblqjtmmsnofyucaem.supabase.co/storage/v1/object/public/brand-assets/${creative.storage_path}`}
@@ -326,13 +326,13 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
                         alert('Unable to download the file. Please try again.');
                       }
                     }}
-                    className="p-2 bg-white rounded-lg shadow-sm hover:bg-gray-50"
+                    className="p-2 bg-[#1A1F2E] rounded-lg shadow-sm hover:bg-gray-800"
                   >
-                    <Download className="h-4 w-4 text-gray-600" />
+                    <Download className="h-4 w-4 text-gray-400" />
                   </button>
                   <button
                     onClick={() => handleDelete(creative.id)}
-                    className="p-2 bg-white rounded-lg shadow-sm hover:bg-red-50"
+                    className="p-2 bg-[#1A1F2E] rounded-lg shadow-sm hover:bg-red-50"
                   >
                     <X className="h-4 w-4 text-red-600" />
                   </button>
@@ -340,8 +340,8 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
               </div>
 
               {/* Info Section */}
-              <div className="p-4 bg-white">
-                <h4 className="font-medium text-gray-900 truncate mb-1">{creative.file_name}</h4>
+              <div className="p-4 bg-[#1A1F2E]">
+                <h4 className="font-medium text-white truncate mb-1">{creative.file_name}</h4>
                 <div className="flex items-center justify-between text-sm text-gray-500">
                   <span>{formatFileSize(creative.file_size)}</span>
                   <span>{new Date(creative.created_at).toLocaleDateString()}</span>
@@ -351,17 +351,17 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
           ))}
         </div>
       ) : (
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-12">
+        <div className="border-2 border-dashed border-gray-700 rounded-lg p-12">
           <div className="text-center">
             <Star className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-4 text-lg font-medium text-gray-900">No golden set creatives</h3>
+            <h3 className="mt-4 text-lg font-medium text-white">No golden set creatives</h3>
             <p className="mt-2 text-sm text-gray-500">
               Perfect example creatives have not been uploaded yet
             </p>
             {!isAdding && (
               <button
                 onClick={() => setIsAdding(true)}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
               >
                 <Upload className="h-4 w-4" />
                 Upload Creatives
@@ -373,8 +373,8 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
 
       {/* Upload Form */}
       {isAdding && (
-        <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
-          <h3 className="font-medium text-gray-900 mb-4">Add Golden Set Creatives</h3>
+        <div className="border border-gray-700 rounded-lg p-6 bg-gray-50">
+          <h3 className="font-medium text-white mb-4">Add Golden Set Creatives</h3>
           <div className="space-y-4">
             <div>
               <input
@@ -388,7 +388,7 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
               />
               <label
                 htmlFor="golden-set-upload"
-                className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 border border-gray-700 text-gray-700 rounded-lg hover:bg-gray-800 transition-colors"
               >
                 <Upload className="h-4 w-4" />
                 Choose Files
@@ -397,9 +397,9 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
             
             {newFiles.length > 0 && (
               <div className="space-y-3">
-                <p className="text-sm text-gray-600">Selected files:</p>
+                <p className="text-sm text-gray-400">Selected files:</p>
                 {newFiles.map((entry, index) => (
-                  <div key={index} className="flex items-center justify-between border border-gray-200 rounded-lg p-3 bg-white">
+                  <div key={index} className="flex items-center justify-between border border-gray-700 rounded-lg p-3 bg-[#1A1F2E]">
                     <div className="flex items-center gap-3">
                       {isVideoFile(entry.file) ? (
                         <Video className="h-5 w-5 text-gray-400" />
@@ -416,7 +416,7 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
                           updatedFiles[index].type = e.target.value as 'UGC' | 'Produced';
                           setNewFiles(updatedFiles);
                         }}
-                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="text-sm border border-gray-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="Produced">Produced</option>
                         <option value="UGC">UGC</option>
@@ -439,14 +439,14 @@ export default function GoldenSet({ brand, onUpdate }: GoldenSetProps) {
                   setIsAdding(false);
                   setNewFiles([]);
                 }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-gray-700 text-gray-700 rounded-lg hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpload}
                 disabled={newFiles.length === 0 || isUploading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
                 {isUploading ? 'Uploading...' : 'Upload'}
               </button>
