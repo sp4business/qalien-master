@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useOrganizationList, useOrganization } from '@clerk/nextjs';
+import { useOrganizationList, useOrganization, useUser } from '@clerk/nextjs';
 import { useBrands, useCreateBrand, useDeleteBrand } from '@/hooks/useBrands';
 import QAlienLoadingScreen from './QAlienLoadingScreen';
 import { Brand } from '@/hooks/useBrands';
@@ -18,6 +18,7 @@ export default function ModernBusinessCenter() {
     userInvitations: true,
   });
   const { organization, isLoaded: currentOrgLoaded } = useOrganization();
+  const { user } = useUser();
   
   // Supabase hooks
   const { data: brands = [], isLoading: brandsLoading } = useBrands();
@@ -424,40 +425,76 @@ export default function ModernBusinessCenter() {
               )}
             </div>
 
-            {/* Empty States */}
+            {/* Empty States - Alpha Invitation Only */}
             {!orgIdFromUrl && (!userMemberships?.data || userMemberships.data.length === 0) && !isLoadingBrands && (
-              <div className="text-center py-12">
-                <div className="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <svg className="w-12 h-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              <div className="text-center py-16 max-w-2xl mx-auto">
+                {/* Alpha Badge */}
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-full mb-8">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                  <span className="text-blue-400 text-sm font-medium">ALPHA ACCESS</span>
+                </div>
+
+                {/* Icon */}
+                <div className="w-24 h-24 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
-                <h3 className="text-xl font-medium mb-2">No Organizations Yet</h3>
-                <p className="text-gray-400 mb-6">
-                  {document.referrer.includes('accept-org-invite') 
-                    ? "If you just accepted an invitation, click refresh to see your organization"
-                    : "Create your first organization to get started"}
+
+                {/* Title */}
+                <h3 className="text-2xl font-semibold mb-3">Welcome to QAlien Alpha</h3>
+                
+                {/* Main Message */}
+                <p className="text-gray-400 mb-8 leading-relaxed max-w-md mx-auto">
+                  QAlien is currently in alpha and available by invitation only. 
+                  Please check your email{user?.emailAddresses?.[0]?.emailAddress && <span className="text-gray-300"> ({user.emailAddresses[0].emailAddress})</span>} for an invitation from your organization administrator.
                 </p>
+
+                {/* Info Box */}
+                <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-6 mb-8 max-w-md mx-auto">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="text-left">
+                      <p className="text-sm text-gray-300 mb-2 font-medium">Waiting for an invitation?</p>
+                      <p className="text-sm text-gray-500 leading-relaxed">
+                        Organization invitations are sent via email. If you haven't received one yet, 
+                        please contact your organization administrator.
+                      </p>
+                      {document.referrer.includes('accept-org-invite') && (
+                        <p className="text-sm text-yellow-400 mt-2">
+                          If you just accepted an invitation, click refresh below to see your organization.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
                 <div className="flex items-center justify-center gap-4">
                   {revalidate && (
                     <button 
                       onClick={() => {
-                        console.log('Manually refreshing organizations...');
+                        console.log('Checking for organizations...');
                         revalidate();
                       }}
-                      className="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-2"
+                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
-                      Refresh Organizations
+                      Check for Invitations
                     </button>
                   )}
                   <button 
-                    onClick={() => window.open('https://dashboard.clerk.com', '_blank')}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    onClick={() => window.location.href = '/login'}
+                    className="px-6 py-3 bg-transparent border border-gray-600 hover:border-gray-500 rounded-lg transition-colors text-gray-400 hover:text-gray-300"
                   >
-                    Create Organization in Clerk
+                    Sign Out
                   </button>
                 </div>
               </div>
