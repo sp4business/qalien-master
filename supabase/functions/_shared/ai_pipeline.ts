@@ -672,7 +672,7 @@ async function analyzeCreativeWithGemini(
   
   try {
     // Initialize Gemini client
-    const GEMINI_API_KEY = 'AIzaSyByCOOyRuHFPheolnaPRtNr27yUd3Etbj8'
+    const GEMINI_API_KEY = 'AIzaSyCO7Nj05XfWbCidDWAVNmQdWYL3qx8RPO0'
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
     
